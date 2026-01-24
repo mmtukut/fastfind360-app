@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useMemo, useCallback } from "react"
 import type { Building, FilterState } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Layers, Locate, ZoomIn, ZoomOut } from "lucide-react"
-import mapboxgl from "mapbox-gl"
+import * as mapboxgl from "mapbox-gl"
 import { GeoJSON } from "geojson"
 
 const MAPBOX_TOKEN = "pk.eyJ1IjoibW10dWt1ciIsImEiOiJjbWhveXFmaGQwZHpwMmxwZ3QxeGhzb2dmIn0.EgXZbVsN1wsiYH4jfxc63Q"
@@ -17,6 +17,13 @@ export const CLASSIFICATION_COLORS: Record<string, string> = {
   default: "#9CA3AF",
 }
 
+// Declare mapboxgl globally for dynamic loading
+declare global {
+  interface Window {
+    mapboxgl: any
+  }
+}
+
 interface MapboxMapProps {
   buildings: Building[]
   filters: FilterState
@@ -27,11 +34,13 @@ interface MapboxMapProps {
 
 export function MapboxMap({ buildings, filters, onBuildingClick, isLoading, selectedBuildingId }: MapboxMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
-  const mapRef = useRef<mapboxgl.Map | null>(null)
+  const mapRef = useRef<any>(null)
   const buildingsRef = useRef<Building[]>(buildings)
   const [mapLoaded, setMapLoaded] = useState(false)
   const [mapStyle, setMapStyle] = useState<"satellite" | "streets">("satellite")
   const [mapboxLoaded, setMapboxLoaded] = useState(false)
+  const [mapError, setMapError] = useState<string | null>(null)
+  const mapboxReady = true; // Declare mapboxReady variable
 
   // Keep buildings ref updated
   useEffect(() => {
@@ -49,11 +58,11 @@ export function MapboxMap({ buildings, filters, onBuildingClick, isLoading, sele
   }, [buildings, filters])
 
   // Convert buildings to GeoJSON with polygon geometry
-  const geojsonData = useMemo((): GeoJSON.FeatureCollection => {
+  const geojsonData = useMemo(() => {
     return {
-      type: "FeatureCollection",
+      type: "FeatureCollection" as const,
       features: filteredBuildings.slice(0, 100000).map((building) => ({
-        type: "Feature",
+        type: "Feature" as const,
         id: building.id,
         properties: {
           id: building.id,
@@ -67,87 +76,9 @@ export function MapboxMap({ buildings, filters, onBuildingClick, isLoading, sele
     }
   }, [filteredBuildings])
 
-  // Add buildings layer function with polygon fill
-  const addBuildingsLayer = useCallback(
-    (map: mapboxgl.Map) => {
-      // Check if source already exists
-      if (map.getSource("buildings")) {
-        const source = map.getSource("buildings") as mapboxgl.GeoJSONSource
-        source.setData(geojsonData)
-        return
-      }
-
-      // Add source
-      map.addSource("buildings", {
-        type: "geojson",
-        data: geojsonData,
-      })
-
-      // Add fill layer for building polygons
-      map.addLayer({
-        id: "buildings-fill",
-        type: "fill",
-        source: "buildings",
-        paint: {
-          "fill-color": [
-            "match",
-            ["get", "classification"],
-            "Residential",
-            CLASSIFICATION_COLORS.Residential,
-            "Commercial",
-            CLASSIFICATION_COLORS.Commercial,
-            "Industrial",
-            CLASSIFICATION_COLORS.Industrial,
-            CLASSIFICATION_COLORS.default,
-          ],
-          "fill-opacity": 0.7,
-        },
-      })
-
-      // Add outline layer for buildings
-      map.addLayer({
-        id: "buildings-outline",
-        type: "line",
-        source: "buildings",
-        paint: {
-          "line-color": "#FFFFFF",
-          "line-width": 1,
-          "line-opacity": 0.5,
-        },
-      })
-
-      // Add click handler
-      map.on("click", "buildings-fill", (e) => {
-        if (!e.features || e.features.length === 0) return
-
-        const feature = e.features[0]
-        const props = feature.properties
-
-        // Find the original building
-        const building = buildingsRef.current.find((b) => b.id === props?.id)
-        if (building) {
-          onBuildingClick(building)
-        }
-      })
-
-      // Change cursor on hover
-      map.on("mouseenter", "buildings-fill", () => {
-        map.getCanvas().style.cursor = "pointer"
-      })
-
-      map.on("mouseleave", "buildings-fill", () => {
-        map.getCanvas().style.cursor = ""
-      })
-    },
-    [geojsonData, onBuildingClick],
-  )
-
   // Load Mapbox GL JS dynamically
   useEffect(() => {
-    if (typeof window === "undefined") return
-
-    // Check if already loaded
-    if (window.mapboxgl) {
+    if (typeof window === "undefined" || window.mapboxgl) {
       setMapboxLoaded(true)
       return
     }
@@ -162,62 +93,163 @@ export function MapboxMap({ buildings, filters, onBuildingClick, isLoading, sele
     const script = document.createElement("script")
     script.src = "https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"
     script.async = true
-    script.onload = () => {
-      setMapboxLoaded(true)
-    }
+    script.onload = () => setMapboxLoaded(true)
+    script.onerror = () => setMapError("Failed to load Mapbox GL JS")
     document.head.appendChild(script)
+
+    return () => {
+      // Cleanup
+    }
   }, [])
+
+  // Add buildings layer function with polygon fill
+  const addBuildingsLayer = useCallback(
+    (map: any) => {
+      try {
+        // Check if source already exists
+        if (map.getSource("buildings")) {
+          const source = map.getSource("buildings")
+          source.setData(geojsonData)
+          return
+        }
+
+        // Add source
+        map.addSource("buildings", {
+          type: "geojson",
+          data: geojsonData,
+        })
+
+        // Add fill layer for building polygons
+        map.addLayer({
+          id: "buildings-fill",
+          type: "fill",
+          source: "buildings",
+          paint: {
+            "fill-color": [
+              "match",
+              ["get", "classification"],
+              "Residential",
+              CLASSIFICATION_COLORS.Residential,
+              "Commercial",
+              CLASSIFICATION_COLORS.Commercial,
+              "Industrial",
+              CLASSIFICATION_COLORS.Industrial,
+              CLASSIFICATION_COLORS.default,
+            ],
+            "fill-opacity": 0.65,
+          },
+        })
+
+        // Add outline layer for buildings
+        map.addLayer({
+          id: "buildings-outline",
+          type: "line",
+          source: "buildings",
+          paint: {
+            "line-color": "#FFFFFF",
+            "line-width": 0.5,
+            "line-opacity": 0.8,
+          },
+        })
+
+        // Add click handler
+        map.on("click", "buildings-fill", (e: any) => {
+          if (!e.features || e.features.length === 0) return
+
+          const feature = e.features[0]
+          const props = feature.properties
+
+          const building = buildingsRef.current.find((b) => b.id === props?.id)
+          if (building) {
+            onBuildingClick(building)
+          }
+        })
+
+        // Change cursor on hover
+        map.on("mouseenter", "buildings-fill", () => {
+          map.getCanvas().style.cursor = "pointer"
+        })
+
+        map.on("mouseleave", "buildings-fill", () => {
+          map.getCanvas().style.cursor = ""
+        })
+      } catch (err) {
+        console.error("[v0] Error adding buildings layer:", err)
+      }
+    },
+    [geojsonData, onBuildingClick],
+  )
 
   // Initialize map
   useEffect(() => {
-    if (!mapboxLoaded || !mapContainerRef.current || mapRef.current) return
+    if (!mapboxReady || !mapContainerRef.current || mapRef.current) return
 
-    const mapboxgl = window.mapboxgl
-    mapboxgl.accessToken = MAPBOX_TOKEN
-
-    const styleUrl =
-      mapStyle === "satellite" ? "mapbox://styles/mapbox/satellite-streets-v12" : "mapbox://styles/mapbox/streets-v12"
-
-    const map = new mapboxgl.Map({
-      container: mapContainerRef.current,
-      style: styleUrl,
-      center: GOMBE_CENTER,
-      zoom: 12,
-      pitch: 45,
-      antialias: true,
-    })
-
-    map.addControl(new mapboxgl.NavigationControl(), "top-right")
-    map.addControl(new mapboxgl.ScaleControl(), "bottom-right")
-
-    const handleMapLoad = () => {
-      // Add 3D terrain only if not already added
-      if (!map.getSource("mapbox-dem")) {
-        map.addSource("mapbox-dem", {
-          type: "raster-dem",
-          url: "mapbox://mapbox.mapbox-terrain-dem-v1",
-          tileSize: 512,
-          maxzoom: 14,
-        })
-        map.setTerrain({ source: "mapbox-dem", exaggeration: 1.5 })
+    try {
+      const mapboxgl = window.mapboxgl
+      if (!mapboxgl) {
+        setMapError("Mapbox GL JS is not available")
+        return
       }
 
-      // Add buildings layer
-      addBuildingsLayer(map)
-      setMapLoaded(true)
+      mapboxgl.accessToken = MAPBOX_TOKEN
+
+      const styleUrl =
+        mapStyle === "satellite"
+          ? "mapbox://styles/mapbox/satellite-streets-v12"
+          : "mapbox://styles/mapbox/streets-v12"
+
+      const map = new mapboxgl.Map({
+        container: mapContainerRef.current,
+        style: styleUrl,
+        center: GOMBE_CENTER,
+        zoom: 12,
+        pitch: 45,
+        antialias: true,
+      })
+
+      // Remove default controls
+      map.addControl(new mapboxgl.NavigationControl(), "top-right")
+      map.addControl(new mapboxgl.ScaleControl(), "bottom-right")
+
+      const handleMapLoad = () => {
+        try {
+          // Add 3D terrain only if not already added
+          if (!map.getSource("mapbox-dem")) {
+            map.addSource("mapbox-dem", {
+              type: "raster-dem",
+              url: "mapbox://mapbox.mapbox-terrain-dem-v1",
+              tileSize: 512,
+              maxzoom: 14,
+            })
+            map.setTerrain({ source: "mapbox-dem", exaggeration: 1.5 })
+          }
+
+          // Add buildings layer
+          addBuildingsLayer(map)
+          setMapLoaded(true)
+        } catch (err) {
+          console.error("[v0] Map load error:", err)
+          setMapError("Failed to load map layers")
+        }
+      }
+
+      map.on("load", handleMapLoad)
+
+      mapRef.current = map
+
+      return () => {
+        map.off("load", handleMapLoad)
+        if (mapRef.current) {
+          mapRef.current.remove()
+          mapRef.current = null
+        }
+        setMapLoaded(false)
+      }
+    } catch (err) {
+      console.error("[v0] Map initialization error:", err)
+      setMapError("Failed to initialize map")
     }
-
-    map.on("load", handleMapLoad)
-
-    mapRef.current = map
-
-    return () => {
-      map.off("load", handleMapLoad)
-      map.remove()
-      mapRef.current = null
-      setMapLoaded(false)
-    }
-  }, [mapboxLoaded, mapStyle, addBuildingsLayer])
+  }, [mapboxReady, mapStyle, addBuildingsLayer])
 
   // Update buildings data when it changes
   useEffect(() => {
@@ -338,90 +370,102 @@ export function MapboxMap({ buildings, filters, onBuildingClick, isLoading, sele
     mapRef.current?.zoomOut()
   }, [])
 
+  if (mapError) {
+    return (
+      <div className="flex-1 flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100">
+        <div className="text-center">
+          <div className="text-lg font-semibold text-red-600 mb-2">Unable to Load Map</div>
+          <p className="text-sm text-slate-600">{mapError}</p>
+        </div>
+      </div>
+    )
+  }
+
   if (isLoading && buildings.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-muted/30">
-        <div className="text-center bg-card/90 backdrop-blur-sm p-6 rounded-lg shadow-lg">
-          <h3 className="text-lg font-semibold mb-2">Loading Geospatial Data</h3>
-          <p className="text-sm text-muted-foreground mb-4">
-            Parsing building footprints for Gombe State. This may take a moment.
-          </p>
-          <div className="w-48 bg-muted rounded-full h-2.5 mx-auto">
-            <div className="bg-secondary h-2.5 rounded-full animate-pulse" style={{ width: "60%" }} />
+      <div className="flex-1 flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100">
+        <div className="text-center">
+          <div className="mb-4">
+            <div className="w-12 h-12 rounded-full border-4 border-slate-200 border-t-blue-500 animate-spin mx-auto" />
           </div>
+          <h3 className="text-sm font-semibold text-slate-900 mb-1">Loading Geospatial Data</h3>
+          <p className="text-xs text-slate-500">Parsing 245,264 building footprints...</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="flex-1 relative">
-      <div ref={mapContainerRef} className="absolute inset-0" />
+    <div className="flex-1 relative overflow-hidden bg-gradient-to-br from-slate-50 to-slate-100">
+      <div ref={mapContainerRef} className="absolute inset-0 bg-slate-200" />
 
-      {/* Custom controls overlay */}
-      <div className="absolute top-4 left-4 z-10 flex flex-col gap-2">
-        <Button
-          variant="secondary"
-          size="icon"
+      {/* Top controls - modern iOS style */}
+      <div className="absolute top-4 right-4 z-10 flex gap-2.5">
+        {/* Style toggle */}
+        <button
           onClick={toggleStyle}
-          className="shadow-lg bg-card/90 backdrop-blur-sm"
+          className="p-2.5 rounded-xl backdrop-blur-md bg-white/70 hover:bg-white/80 shadow-sm border border-white/50 transition-all active:scale-95"
           title={mapStyle === "satellite" ? "Switch to Streets" : "Switch to Satellite"}
         >
-          <Layers className="w-4 h-4" />
-        </Button>
-        <Button
-          variant="secondary"
-          size="icon"
+          <Layers className="w-5 h-5 text-slate-700" strokeWidth={1.5} />
+        </button>
+
+        {/* Recenter */}
+        <button
           onClick={handleRecenter}
-          className="shadow-lg bg-card/90 backdrop-blur-sm"
+          className="p-2.5 rounded-xl backdrop-blur-md bg-white/70 hover:bg-white/80 shadow-sm border border-white/50 transition-all active:scale-95"
           title="Recenter Map"
         >
-          <Locate className="w-4 h-4" />
-        </Button>
-        <Button
-          variant="secondary"
-          size="icon"
+          <Locate className="w-5 h-5 text-slate-700" strokeWidth={1.5} />
+        </button>
+
+        {/* Zoom In */}
+        <button
           onClick={handleZoomIn}
-          className="shadow-lg bg-card/90 backdrop-blur-sm lg:hidden"
+          className="p-2.5 rounded-xl backdrop-blur-md bg-white/70 hover:bg-white/80 shadow-sm border border-white/50 transition-all active:scale-95 lg:hidden"
           title="Zoom In"
         >
-          <ZoomIn className="w-4 h-4" />
-        </Button>
-        <Button
-          variant="secondary"
-          size="icon"
+          <ZoomIn className="w-5 h-5 text-slate-700" strokeWidth={1.5} />
+        </button>
+
+        {/* Zoom Out */}
+        <button
           onClick={handleZoomOut}
-          className="shadow-lg bg-card/90 backdrop-blur-sm lg:hidden"
+          className="p-2.5 rounded-xl backdrop-blur-md bg-white/70 hover:bg-white/80 shadow-sm border border-white/50 transition-all active:scale-95 lg:hidden"
           title="Zoom Out"
         >
-          <ZoomOut className="w-4 h-4" />
-        </Button>
+          <ZoomOut className="w-5 h-5 text-slate-700" strokeWidth={1.5} />
+        </button>
       </div>
 
-      {/* Legend */}
-      <div className="absolute bottom-4 left-4 z-10 bg-card/90 backdrop-blur-sm rounded-lg p-3 shadow-lg">
-        <div className="text-xs font-medium mb-2">Building Types</div>
-        <div className="space-y-1.5">
-          <div className="flex items-center gap-2 text-xs">
-            <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: CLASSIFICATION_COLORS.Residential }} />
-            <span>Residential</span>
-          </div>
-          <div className="flex items-center gap-2 text-xs">
-            <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: CLASSIFICATION_COLORS.Commercial }} />
-            <span>Commercial</span>
-          </div>
-          <div className="flex items-center gap-2 text-xs">
-            <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: CLASSIFICATION_COLORS.Industrial }} />
-            <span>Industrial</span>
+      {/* Building Types Legend - bottom left */}
+      <div className="absolute bottom-4 left-4 z-10">
+        <div className="rounded-2xl backdrop-blur-md bg-white/70 hover:bg-white/80 shadow-sm border border-white/50 p-3.5 min-w-fit">
+          <div className="text-xs font-semibold text-slate-900 mb-2.5">Building Types</div>
+          <div className="space-y-2">
+            <div className="flex items-center gap-2.5">
+              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: CLASSIFICATION_COLORS.Residential }} />
+              <span className="text-xs text-slate-700 font-medium">Residential</span>
+            </div>
+            <div className="flex items-center gap-2.5">
+              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: CLASSIFICATION_COLORS.Commercial }} />
+              <span className="text-xs text-slate-700 font-medium">Commercial</span>
+            </div>
+            <div className="flex items-center gap-2.5">
+              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: CLASSIFICATION_COLORS.Industrial }} />
+              <span className="text-xs text-slate-700 font-medium">Industrial</span>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Stats overlay */}
-      <div className="absolute top-4 right-20 z-10 bg-card/90 backdrop-blur-sm rounded-lg p-3 shadow-lg">
-        <div className="text-xs text-muted-foreground">Showing</div>
-        <div className="text-lg font-bold">{filteredBuildings.length.toLocaleString()}</div>
-        <div className="text-xs text-muted-foreground">of {buildings.length.toLocaleString()} buildings</div>
+      {/* Stats Badge - top right, below controls */}
+      <div className="absolute top-20 right-4 z-10">
+        <div className="rounded-2xl backdrop-blur-md bg-white/70 hover:bg-white/80 shadow-sm border border-white/50 px-4 py-3 text-right">
+          <div className="text-xs font-medium text-slate-600 mb-0.5">Showing</div>
+          <div className="text-xl font-bold text-slate-900">{filteredBuildings.length.toLocaleString()}</div>
+          <div className="text-xs text-slate-500 mt-0.5">of {buildings.length.toLocaleString()} buildings</div>
+        </div>
       </div>
     </div>
   )
