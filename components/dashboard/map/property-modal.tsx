@@ -115,7 +115,7 @@ export function PropertyModal({ building, open, onClose }: PropertyModalProps) {
 
           {/* Property Details */}
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1">
+            <div className="p-3 bg-muted/50 rounded-lg space-y-1">
               <div className="text-xs text-muted-foreground flex items-center gap-1">
                 <Ruler className="w-3 h-3" />
                 Area
@@ -123,14 +123,7 @@ export function PropertyModal({ building, open, onClose }: PropertyModalProps) {
               <div className="font-semibold">{building.area_in_meters.toLocaleString()} m²</div>
             </div>
 
-            {building.perimeter && (
-              <div className="space-y-1">
-                <div className="text-xs text-muted-foreground">Perimeter</div>
-                <div className="font-semibold">{building.perimeter.toFixed(1)} m</div>
-              </div>
-            )}
-
-            <div className="space-y-1">
+            <div className="p-3 bg-muted/50 rounded-lg space-y-1">
               <div className="text-xs text-muted-foreground flex items-center gap-1">
                 <Target className="w-3 h-3" />
                 Confidence
@@ -138,7 +131,17 @@ export function PropertyModal({ building, open, onClose }: PropertyModalProps) {
               <div className="font-semibold">{(building.confidence * 100).toFixed(1)}%</div>
             </div>
 
-            <div className="space-y-1">
+            <div className="p-3 bg-muted/50 rounded-lg space-y-1">
+              <div className="text-xs text-muted-foreground flex items-center gap-1">
+                <Banknote className="w-3 h-3" />
+                Est. Value
+              </div>
+              <div className="font-semibold text-primary">
+                {formatCurrency(building.properties?.estimatedValue || building.area_in_meters * 50000)}
+              </div>
+            </div>
+
+            <div className="p-3 bg-muted/50 rounded-lg space-y-1">
               <div className="text-xs text-muted-foreground flex items-center gap-1">
                 <Banknote className="w-3 h-3" />
                 Est. Annual Tax

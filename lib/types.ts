@@ -1,16 +1,32 @@
 // FastFind360 Type Definitions
 
+export interface BuildingGeometry {
+  type: "Polygon"
+  coordinates: number[][][]
+}
+
+export interface BuildingProperties {
+  id: string
+  classification: "Residential" | "Commercial" | "Industrial"
+  area_in_meters: number
+  confidence: number
+  estimated_tax: number
+  estimatedValue: number
+  detectedAt: string
+}
+
 export interface Building {
   id: string
   latitude: number
   longitude: number
   area_in_meters: number
-  geometry?: string
+  geometry: BuildingGeometry
   confidence: number
   classification: "Residential" | "Commercial" | "Industrial"
   perimeter?: number
   compactness?: number
-  estimated_tax?: number
+  estimated_tax: number
+  properties: BuildingProperties
 }
 
 export interface BuildingStats {

@@ -60,7 +60,13 @@ export default function PropertyMapPage() {
         onExportCSV={handleExportCSV}
         onGenerateReport={handleGenerateReport}
       />
-      <MapboxMap buildings={buildings} filters={filters} onBuildingClick={handleBuildingClick} isLoading={isLoading} />
+      <MapboxMap
+        buildings={buildings}
+        filters={filters}
+        onBuildingClick={handleBuildingClick}
+        isLoading={isLoading}
+        selectedBuildingId={selectedBuilding?.id ?? null}
+      />
       <PropertyModal building={selectedBuilding} open={modalOpen} onClose={() => setModalOpen(false)} />
     </div>
   )

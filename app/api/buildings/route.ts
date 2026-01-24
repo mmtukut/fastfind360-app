@@ -10,6 +10,13 @@ const TAX_RATES = {
   Industrial: 500,
 }
 
+// Value multiplier for estimated property value
+const VALUE_MULTIPLIER = {
+  Residential: 50000,
+  Commercial: 120000,
+  Industrial: 80000,
+}
+
 function classifyBuilding(area: number): "Residential" | "Commercial" | "Industrial" {
   if (area < 150) return "Residential"
   if (area < 600) return "Commercial"
@@ -38,10 +45,54 @@ function parseCSVLine(line: string): string[] {
   return values
 }
 
+function parseGeometry(geometryStr: string, lat: number, lng: number): { type: "Polygon"; coordinates: number[][][] } {
+  // Try to parse the geometry string
+  if (geometryStr) {
+    try {
+      // Check if it's a POLYGON format like "POLYGON((lng lat, lng lat, ...))"
+      if (geometryStr.startsWith("POLYGON")) {
+        const coordsMatch = geometryStr.match(/\(\((.+)\)\)/)
+        if (coordsMatch) {
+          const coordsStr = coordsMatch[1]
+          const points = coordsStr.split(",").map((p) => {
+            const [x, y] = p.trim().split(/\s+/).map(Number)
+            return [x, y]
+          })
+          if (points.length >= 3) {
+            return { type: "Polygon", coordinates: [points] }
+          }
+        }
+      }
+
+      // Try JSON parse
+      const parsed = JSON.parse(geometryStr)
+      if (parsed.coordinates && Array.isArray(parsed.coordinates)) {
+        return { type: "Polygon", coordinates: parsed.coordinates }
+      }
+    } catch {
+      // Fall through to generate from center point
+    }
+  }
+
+  // Generate a simple square polygon from center point and area
+  // Assuming a roughly square building
+  const sideLength = 0.00005 // ~5 meters in degrees at this latitude
+  return {
+    type: "Polygon",
+    coordinates: [
+      [
+        [lng - sideLength, lat - sideLength],
+        [lng + sideLength, lat - sideLength],
+        [lng + sideLength, lat + sideLength],
+        [lng - sideLength, lat + sideLength],
+        [lng - sideLength, lat - sideLength], // Close the polygon
+      ],
+    ],
+  }
+}
+
 export async function GET() {
   try {
-    console.log("[v0] Fetching buildings from Firebase...")
-
     const response = await fetch(FIREBASE_CSV_URL, {
       headers: {
         Accept: "text/csv, text/plain, */*",
@@ -54,12 +105,9 @@ export async function GET() {
     }
 
     const csvText = await response.text()
-    console.log("[v0] CSV fetched, parsing...")
 
     const lines = csvText.split("\n")
     const headers = lines[0].split(",").map((h) => h.trim().toLowerCase())
-
-    console.log("[v0] CSV Headers:", headers)
 
     // Find column indices - be flexible with header names
     const latIdx = headers.findIndex((h) => h.includes("lat") || h === "y")
@@ -67,8 +115,6 @@ export async function GET() {
     const areaIdx = headers.findIndex((h) => h.includes("area"))
     const confIdx = headers.findIndex((h) => h.includes("confidence") || h.includes("conf"))
     const geomIdx = headers.findIndex((h) => h.includes("geometry") || h.includes("geom"))
-
-    console.log("[v0] Column indices - lat:", latIdx, "lon:", lonIdx, "area:", areaIdx)
 
     const buildings = []
     const stats = {
@@ -81,6 +127,8 @@ export async function GET() {
       largeCommercial: 0,
     }
 
+    const detectedAt = new Date().toISOString().split("T")[0]
+
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i].trim()
       if (!line) continue
@@ -91,22 +139,36 @@ export async function GET() {
       const lng = Number.parseFloat(values[lonIdx] || "0")
       const area = Number.parseFloat(values[areaIdx] || "0")
       const confidence = Number.parseFloat(values[confIdx] || "0.95")
+      const geometryStr = values[geomIdx] || ""
 
       // Skip invalid coordinates
-      if (isNaN(lat) || isNaN(lng) || lat === 0 || lng === 0) continue
+      if (Number.isNaN(lat) || Number.isNaN(lng) || lat === 0 || lng === 0) continue
 
       const classification = classifyBuilding(area)
       const estimatedTax = area * TAX_RATES[classification]
+      const estimatedValue = area * VALUE_MULTIPLIER[classification]
+      const geometry = parseGeometry(geometryStr, lat, lng)
+
+      const id = `building-${i}`
 
       buildings.push({
-        id: `building-${i}`,
+        id,
         latitude: lat,
         longitude: lng,
         area_in_meters: area,
         confidence,
-        geometry: values[geomIdx] || undefined,
+        geometry,
         classification,
         estimated_tax: estimatedTax,
+        properties: {
+          id,
+          classification,
+          area_in_meters: area,
+          confidence,
+          estimated_tax: estimatedTax,
+          estimatedValue,
+          detectedAt,
+        },
       })
 
       // Update stats
@@ -120,8 +182,6 @@ export async function GET() {
         if (area > 500) stats.largeCommercial++
       } else if (classification === "Industrial") stats.industrial++
     }
-
-    console.log("[v0] Parsed", buildings.length, "buildings")
 
     return NextResponse.json(
       { buildings, stats },

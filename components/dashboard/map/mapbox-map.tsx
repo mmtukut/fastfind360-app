@@ -1,36 +1,42 @@
 "use client"
 
-import { useEffect, useRef, useState, useMemo } from "react"
-import mapboxgl from "mapbox-gl"
-import "mapbox-gl/dist/mapbox-gl.css"
+import { useEffect, useRef, useState, useMemo, useCallback } from "react"
 import type { Building, FilterState } from "@/lib/types"
 import { Button } from "@/components/ui/button"
-import { Layers, Locate } from "lucide-react"
+import { Layers, Locate, ZoomIn, ZoomOut } from "lucide-react"
+import mapboxgl from "mapbox-gl"
+import { GeoJSON } from "geojson"
 
-mapboxgl.accessToken =
-  process.env.NEXT_PUBLIC_MAPBOX_TOKEN ||
-  "pk.eyJ1IjoibW10dWt1ciIsImEiOiJjbWhveXFmaGQwZHpwMmxwZ3QxeGhzb2dmIn0.EgXZbVsN1wsiYH4jfxc63Q"
+const MAPBOX_TOKEN = "pk.eyJ1IjoibW10dWt1ciIsImEiOiJjbWhveXFmaGQwZHpwMmxwZ3QxeGhzb2dmIn0.EgXZbVsN1wsiYH4jfxc63Q"
+const GOMBE_CENTER: [number, number] = [11.1672, 10.2897] // [lng, lat]
+
+export const CLASSIFICATION_COLORS: Record<string, string> = {
+  Residential: "#3B82F6", // Blue
+  Commercial: "#F59E0B", // Amber
+  Industrial: "#8B5CF6", // Purple
+  default: "#9CA3AF",
+}
 
 interface MapboxMapProps {
   buildings: Building[]
   filters: FilterState
   onBuildingClick: (building: Building) => void
   isLoading: boolean
+  selectedBuildingId?: string | null
 }
 
-const GOMBE_CENTER: [number, number] = [11.1672, 10.2897] // [lng, lat]
-
-const CLASSIFICATION_COLORS: Record<string, string> = {
-  Residential: "#2563EB",
-  Commercial: "#059669",
-  Industrial: "#DC2626",
-}
-
-export function MapboxMap({ buildings, filters, onBuildingClick, isLoading }: MapboxMapProps) {
-  const mapContainer = useRef<HTMLDivElement>(null)
-  const map = useRef<mapboxgl.Map | null>(null)
+export function MapboxMap({ buildings, filters, onBuildingClick, isLoading, selectedBuildingId }: MapboxMapProps) {
+  const mapContainerRef = useRef<HTMLDivElement>(null)
+  const mapRef = useRef<mapboxgl.Map | null>(null)
+  const buildingsRef = useRef<Building[]>(buildings)
   const [mapLoaded, setMapLoaded] = useState(false)
   const [mapStyle, setMapStyle] = useState<"satellite" | "streets">("satellite")
+  const [mapboxLoaded, setMapboxLoaded] = useState(false)
+
+  // Keep buildings ref updated
+  useEffect(() => {
+    buildingsRef.current = buildings
+  }, [buildings])
 
   // Filter buildings
   const filteredBuildings = useMemo(() => {
@@ -42,12 +48,13 @@ export function MapboxMap({ buildings, filters, onBuildingClick, isLoading }: Ma
     })
   }, [buildings, filters])
 
-  // Convert buildings to GeoJSON
-  const geojsonData = useMemo(() => {
+  // Convert buildings to GeoJSON with polygon geometry
+  const geojsonData = useMemo((): GeoJSON.FeatureCollection => {
     return {
-      type: "FeatureCollection" as const,
+      type: "FeatureCollection",
       features: filteredBuildings.slice(0, 100000).map((building) => ({
-        type: "Feature" as const,
+        type: "Feature",
+        id: building.id,
         properties: {
           id: building.id,
           classification: building.classification,
@@ -55,195 +62,293 @@ export function MapboxMap({ buildings, filters, onBuildingClick, isLoading }: Ma
           confidence: building.confidence,
           tax: building.estimated_tax,
         },
-        geometry: {
-          type: "Point" as const,
-          coordinates: [building.longitude, building.latitude],
-        },
+        geometry: building.geometry,
       })),
     }
   }, [filteredBuildings])
 
-  // Initialize map
+  // Add buildings layer function with polygon fill
+  const addBuildingsLayer = useCallback(
+    (map: mapboxgl.Map) => {
+      // Check if source already exists
+      if (map.getSource("buildings")) {
+        const source = map.getSource("buildings") as mapboxgl.GeoJSONSource
+        source.setData(geojsonData)
+        return
+      }
+
+      // Add source
+      map.addSource("buildings", {
+        type: "geojson",
+        data: geojsonData,
+      })
+
+      // Add fill layer for building polygons
+      map.addLayer({
+        id: "buildings-fill",
+        type: "fill",
+        source: "buildings",
+        paint: {
+          "fill-color": [
+            "match",
+            ["get", "classification"],
+            "Residential",
+            CLASSIFICATION_COLORS.Residential,
+            "Commercial",
+            CLASSIFICATION_COLORS.Commercial,
+            "Industrial",
+            CLASSIFICATION_COLORS.Industrial,
+            CLASSIFICATION_COLORS.default,
+          ],
+          "fill-opacity": 0.7,
+        },
+      })
+
+      // Add outline layer for buildings
+      map.addLayer({
+        id: "buildings-outline",
+        type: "line",
+        source: "buildings",
+        paint: {
+          "line-color": "#FFFFFF",
+          "line-width": 1,
+          "line-opacity": 0.5,
+        },
+      })
+
+      // Add click handler
+      map.on("click", "buildings-fill", (e) => {
+        if (!e.features || e.features.length === 0) return
+
+        const feature = e.features[0]
+        const props = feature.properties
+
+        // Find the original building
+        const building = buildingsRef.current.find((b) => b.id === props?.id)
+        if (building) {
+          onBuildingClick(building)
+        }
+      })
+
+      // Change cursor on hover
+      map.on("mouseenter", "buildings-fill", () => {
+        map.getCanvas().style.cursor = "pointer"
+      })
+
+      map.on("mouseleave", "buildings-fill", () => {
+        map.getCanvas().style.cursor = ""
+      })
+    },
+    [geojsonData, onBuildingClick],
+  )
+
+  // Load Mapbox GL JS dynamically
   useEffect(() => {
-    if (!mapContainer.current || map.current) return
+    if (typeof window === "undefined") return
 
-    map.current = new mapboxgl.Map({
-      container: mapContainer.current,
-      style:
-        mapStyle === "satellite"
-          ? "mapbox://styles/mapbox/satellite-streets-v12"
-          : "mapbox://styles/mapbox/streets-v12",
-      center: GOMBE_CENTER,
-      zoom: 10,
-    })
-
-    map.current.addControl(new mapboxgl.NavigationControl(), "top-right")
-    map.current.addControl(new mapboxgl.ScaleControl(), "bottom-right")
-
-    map.current.on("load", () => {
-      setMapLoaded(true)
-    })
-
-    return () => {
-      map.current?.remove()
-      map.current = null
+    // Check if already loaded
+    if (window.mapboxgl) {
+      setMapboxLoaded(true)
+      return
     }
+
+    // Load CSS
+    const cssLink = document.createElement("link")
+    cssLink.rel = "stylesheet"
+    cssLink.href = "https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css"
+    document.head.appendChild(cssLink)
+
+    // Load JS
+    const script = document.createElement("script")
+    script.src = "https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"
+    script.async = true
+    script.onload = () => {
+      setMapboxLoaded(true)
+    }
+    document.head.appendChild(script)
   }, [])
 
-  // Update map style
+  // Initialize map
   useEffect(() => {
-    if (!map.current) return
+    if (!mapboxLoaded || !mapContainerRef.current || mapRef.current) return
+
+    const mapboxgl = window.mapboxgl
+    mapboxgl.accessToken = MAPBOX_TOKEN
 
     const styleUrl =
       mapStyle === "satellite" ? "mapbox://styles/mapbox/satellite-streets-v12" : "mapbox://styles/mapbox/streets-v12"
 
-    map.current.setStyle(styleUrl)
-
-    // Re-add source and layers after style change
-    map.current.once("style.load", () => {
-      addBuildingsLayer()
+    const map = new mapboxgl.Map({
+      container: mapContainerRef.current,
+      style: styleUrl,
+      center: GOMBE_CENTER,
+      zoom: 12,
+      pitch: 45,
+      antialias: true,
     })
-  }, [mapStyle])
 
-  // Add buildings layer function
-  const addBuildingsLayer = () => {
-    if (!map.current) return
+    map.addControl(new mapboxgl.NavigationControl(), "top-right")
+    map.addControl(new mapboxgl.ScaleControl(), "bottom-right")
 
-    // Remove existing source/layers if they exist
-    if (map.current.getSource("buildings")) {
-      map.current.removeLayer("buildings-heat")
-      map.current.removeLayer("buildings-points")
-      map.current.removeSource("buildings")
+    const handleMapLoad = () => {
+      // Add 3D terrain only if not already added
+      if (!map.getSource("mapbox-dem")) {
+        map.addSource("mapbox-dem", {
+          type: "raster-dem",
+          url: "mapbox://mapbox.mapbox-terrain-dem-v1",
+          tileSize: 512,
+          maxzoom: 14,
+        })
+        map.setTerrain({ source: "mapbox-dem", exaggeration: 1.5 })
+      }
+
+      // Add buildings layer
+      addBuildingsLayer(map)
+      setMapLoaded(true)
     }
 
-    // Add source
-    map.current.addSource("buildings", {
-      type: "geojson",
-      data: geojsonData,
-      cluster: true,
-      clusterMaxZoom: 14,
-      clusterRadius: 50,
-    })
+    map.on("load", handleMapLoad)
 
-    // Add heatmap layer for zoomed out view
-    map.current.addLayer({
-      id: "buildings-heat",
-      type: "heatmap",
-      source: "buildings",
-      maxzoom: 12,
-      paint: {
-        "heatmap-weight": ["interpolate", ["linear"], ["get", "area"], 0, 0, 1000, 1],
-        "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 0, 1, 12, 3],
-        "heatmap-color": [
-          "interpolate",
-          ["linear"],
-          ["heatmap-density"],
-          0,
-          "rgba(33,102,172,0)",
-          0.2,
-          "rgb(103,169,207)",
-          0.4,
-          "rgb(209,229,240)",
-          0.6,
-          "rgb(253,219,199)",
-          0.8,
-          "rgb(239,138,98)",
-          1,
-          "rgb(178,24,43)",
-        ],
-        "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 0, 2, 12, 20],
-        "heatmap-opacity": ["interpolate", ["linear"], ["zoom"], 10, 1, 14, 0],
-      },
-    })
+    mapRef.current = map
 
-    // Add circle layer for individual buildings when zoomed in
-    map.current.addLayer({
-      id: "buildings-points",
-      type: "circle",
-      source: "buildings",
-      minzoom: 10,
-      paint: {
-        "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, 2, 14, 4, 18, 8],
-        "circle-color": [
-          "match",
-          ["get", "classification"],
-          "Residential",
-          CLASSIFICATION_COLORS.Residential,
-          "Commercial",
-          CLASSIFICATION_COLORS.Commercial,
-          "Industrial",
-          CLASSIFICATION_COLORS.Industrial,
-          "#888888",
-        ],
-        "circle-opacity": 0.8,
-        "circle-stroke-width": 1,
-        "circle-stroke-color": "#ffffff",
-        "circle-stroke-opacity": 0.5,
-      },
-    })
+    return () => {
+      map.off("load", handleMapLoad)
+      map.remove()
+      mapRef.current = null
+      setMapLoaded(false)
+    }
+  }, [mapboxLoaded, mapStyle, addBuildingsLayer])
 
-    // Add click handler
-    map.current.on("click", "buildings-points", (e) => {
-      if (!e.features || e.features.length === 0) return
-
-      const feature = e.features[0]
-      const props = feature.properties
-
-      // Find the original building
-      const building = buildings.find((b) => b.id === props?.id)
-      if (building) {
-        onBuildingClick(building)
-      }
-    })
-
-    // Change cursor on hover
-    map.current.on("mouseenter", "buildings-points", () => {
-      if (map.current) map.current.getCanvas().style.cursor = "pointer"
-    })
-
-    map.current.on("mouseleave", "buildings-points", () => {
-      if (map.current) map.current.getCanvas().style.cursor = ""
-    })
-  }
-
-  // Update buildings data
+  // Update buildings data when it changes
   useEffect(() => {
-    if (!map.current || !mapLoaded) return
+    if (!mapRef.current || !mapLoaded) return
 
-    const source = map.current.getSource("buildings") as mapboxgl.GeoJSONSource
+    const map = mapRef.current
+    const source = map.getSource("buildings") as mapboxgl.GeoJSONSource
+
     if (source) {
       source.setData(geojsonData)
     } else {
-      addBuildingsLayer()
+      addBuildingsLayer(map)
     }
-  }, [geojsonData, mapLoaded])
+  }, [geojsonData, mapLoaded, addBuildingsLayer])
 
-  const handleZoomIn = () => {
-    map.current?.zoomIn()
-  }
+  // Handle selected building highlight and fly-to
+  useEffect(() => {
+    if (!mapRef.current || !mapLoaded) return
+    const map = mapRef.current
 
-  const handleZoomOut = () => {
-    map.current?.zoomOut()
-  }
+    // Remove existing selection layer
+    if (map.getLayer("selected-building-outline")) {
+      map.removeLayer("selected-building-outline")
+    }
 
-  const handleRecenter = () => {
-    map.current?.flyTo({
+    if (selectedBuildingId) {
+      // Add highlight layer for selected building
+      map.addLayer({
+        id: "selected-building-outline",
+        type: "line",
+        source: "buildings",
+        paint: {
+          "line-color": "#FFFF00", // Bright yellow
+          "line-width": 3,
+          "line-opacity": 1,
+        },
+        filter: ["==", ["get", "id"], selectedBuildingId],
+      })
+
+      // Fly to selected building
+      const selectedBuilding = buildings.find((b) => b.id === selectedBuildingId)
+      if (selectedBuilding && selectedBuilding.geometry?.coordinates?.[0]) {
+        const coordinates = selectedBuilding.geometry.coordinates[0]
+        const center = coordinates.reduce(
+          (acc, coord) => [acc[0] + coord[0], acc[1] + coord[1]],
+          [0, 0],
+        )
+        center[0] /= coordinates.length
+        center[1] /= coordinates.length
+
+        map.flyTo({
+          center: center as [number, number],
+          zoom: 18,
+          pitch: 60,
+        })
+      }
+    }
+  }, [selectedBuildingId, mapLoaded, buildings])
+
+  // Handle style changes
+  const toggleStyle = useCallback(() => {
+    if (!mapRef.current) return
+
+    const newStyle = mapStyle === "satellite" ? "streets" : "satellite"
+    setMapStyle(newStyle)
+    setMapLoaded(false)
+
+    const styleUrl =
+      newStyle === "satellite" ? "mapbox://styles/mapbox/satellite-streets-v12" : "mapbox://styles/mapbox/streets-v12"
+
+    const map = mapRef.current
+
+    // Remove terrain before changing style to avoid issues
+    try {
+      if (map.getTerrain()) {
+        map.setTerrain(null)
+      }
+    } catch {
+      // Terrain might not exist yet
+    }
+
+    map.setStyle(styleUrl)
+
+    const handleStyleLoad = () => {
+      // Re-add terrain after style change
+      if (!map.getSource("mapbox-dem")) {
+        map.addSource("mapbox-dem", {
+          type: "raster-dem",
+          url: "mapbox://mapbox.mapbox-terrain-dem-v1",
+          tileSize: 512,
+          maxzoom: 14,
+        })
+        map.setTerrain({ source: "mapbox-dem", exaggeration: 1.5 })
+      }
+
+      // Re-add buildings layers
+      addBuildingsLayer(map)
+      setMapLoaded(true)
+    }
+
+    map.once("style.load", handleStyleLoad)
+  }, [mapStyle, addBuildingsLayer])
+
+  const handleRecenter = useCallback(() => {
+    mapRef.current?.flyTo({
       center: GOMBE_CENTER,
-      zoom: 10,
+      zoom: 12,
+      pitch: 45,
       duration: 1500,
     })
-  }
+  }, [])
 
-  const toggleStyle = () => {
-    setMapStyle((s) => (s === "satellite" ? "streets" : "satellite"))
-  }
+  const handleZoomIn = useCallback(() => {
+    mapRef.current?.zoomIn()
+  }, [])
 
-  if (isLoading) {
+  const handleZoomOut = useCallback(() => {
+    mapRef.current?.zoomOut()
+  }, [])
+
+  if (isLoading && buildings.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center bg-muted/30">
-        <div className="text-center">
-          <div className="animate-spin w-8 h-8 border-4 border-secondary border-t-transparent rounded-full mx-auto mb-4" />
-          <p className="text-muted-foreground">Loading buildings...</p>
+        <div className="text-center bg-card/90 backdrop-blur-sm p-6 rounded-lg shadow-lg">
+          <h3 className="text-lg font-semibold mb-2">Loading Geospatial Data</h3>
+          <p className="text-sm text-muted-foreground mb-4">
+            Parsing building footprints for Gombe State. This may take a moment.
+          </p>
+          <div className="w-48 bg-muted rounded-full h-2.5 mx-auto">
+            <div className="bg-secondary h-2.5 rounded-full animate-pulse" style={{ width: "60%" }} />
+          </div>
         </div>
       </div>
     )
@@ -251,7 +356,7 @@ export function MapboxMap({ buildings, filters, onBuildingClick, isLoading }: Ma
 
   return (
     <div className="flex-1 relative">
-      <div ref={mapContainer} className="absolute inset-0" />
+      <div ref={mapContainerRef} className="absolute inset-0" />
 
       {/* Custom controls overlay */}
       <div className="absolute top-4 left-4 z-10 flex flex-col gap-2">
@@ -273,6 +378,24 @@ export function MapboxMap({ buildings, filters, onBuildingClick, isLoading }: Ma
         >
           <Locate className="w-4 h-4" />
         </Button>
+        <Button
+          variant="secondary"
+          size="icon"
+          onClick={handleZoomIn}
+          className="shadow-lg bg-card/90 backdrop-blur-sm lg:hidden"
+          title="Zoom In"
+        >
+          <ZoomIn className="w-4 h-4" />
+        </Button>
+        <Button
+          variant="secondary"
+          size="icon"
+          onClick={handleZoomOut}
+          className="shadow-lg bg-card/90 backdrop-blur-sm lg:hidden"
+          title="Zoom Out"
+        >
+          <ZoomOut className="w-4 h-4" />
+        </Button>
       </div>
 
       {/* Legend */}
@@ -280,16 +403,16 @@ export function MapboxMap({ buildings, filters, onBuildingClick, isLoading }: Ma
         <div className="text-xs font-medium mb-2">Building Types</div>
         <div className="space-y-1.5">
           <div className="flex items-center gap-2 text-xs">
-            <span className="w-3 h-3 rounded-full" style={{ backgroundColor: CLASSIFICATION_COLORS.Residential }} />
-            <span>Residential ({filters.classifications.includes("Residential") ? "On" : "Off"})</span>
+            <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: CLASSIFICATION_COLORS.Residential }} />
+            <span>Residential</span>
           </div>
           <div className="flex items-center gap-2 text-xs">
-            <span className="w-3 h-3 rounded-full" style={{ backgroundColor: CLASSIFICATION_COLORS.Commercial }} />
-            <span>Commercial ({filters.classifications.includes("Commercial") ? "On" : "Off"})</span>
+            <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: CLASSIFICATION_COLORS.Commercial }} />
+            <span>Commercial</span>
           </div>
           <div className="flex items-center gap-2 text-xs">
-            <span className="w-3 h-3 rounded-full" style={{ backgroundColor: CLASSIFICATION_COLORS.Industrial }} />
-            <span>Industrial ({filters.classifications.includes("Industrial") ? "On" : "Off"})</span>
+            <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: CLASSIFICATION_COLORS.Industrial }} />
+            <span>Industrial</span>
           </div>
         </div>
       </div>
@@ -302,4 +425,11 @@ export function MapboxMap({ buildings, filters, onBuildingClick, isLoading }: Ma
       </div>
     </div>
   )
+}
+
+// Add global type declaration for mapboxgl
+declare global {
+  interface Window {
+    mapboxgl: typeof import("mapbox-gl")
+  }
 }

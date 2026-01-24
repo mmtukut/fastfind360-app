@@ -28,7 +28,6 @@ async function buildingsFetcher(): Promise<{
     const data = await response.json()
     return data
   } catch (error) {
-    console.error("[v0] Buildings fetch error:", error)
     throw error
   }
 }
