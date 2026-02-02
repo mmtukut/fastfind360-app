@@ -29,6 +29,9 @@ export interface FilterState {
   maxArea: number
   minConfidence: number
   searchLocation: string
+  showOnlyUnmapped?: boolean
+  minValue?: number
+  newConstructionOnly?: boolean
 }
 
 export interface ReportConfig {

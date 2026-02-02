@@ -1,5 +1,6 @@
 "use client"
 
+import { useMemo, memo } from "react"
 import { useBuildings } from "@/hooks/use-buildings"
 import { StatCard } from "@/components/dashboard/stat-card"
 import { BuildingTypePieChart, SizeDistributionChart } from "@/components/dashboard/overview-charts"
@@ -8,8 +9,24 @@ import { formatCurrency } from "@/lib/buildings-data"
 import { Building2, Home, Store, Factory, Banknote, Target } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
 
+// Memoized chart components to prevent unnecessary re-renders
+const MemoizedBuildingTypePieChart = memo(BuildingTypePieChart)
+const MemoizedSizeDistributionChart = memo(SizeDistributionChart)
+const MemoizedRecentActivity = memo(RecentActivity)
+
 export default function DashboardOverview() {
-  const { stats, isLoading, isError } = useBuildings()
+  const { stats, isLoading, isError } = useBuildings({ statsOnly: true })
+
+  // Memoize computed percentages
+  const computedStats = useMemo(() => {
+    if (!stats || stats.total === 0) return null
+
+    return {
+      residentialPercent: ((stats.residential / stats.total) * 100).toFixed(1),
+      commercialPercent: ((stats.commercial / stats.total) * 100).toFixed(1),
+      industrialPercent: ((stats.industrial / stats.total) * 100).toFixed(1),
+    }
+  }, [stats])
 
   if (isError) {
     return (
@@ -49,21 +66,21 @@ export default function DashboardOverview() {
             <StatCard
               title="Residential"
               value={stats.residential.toLocaleString()}
-              subtitle={`${((stats.residential / stats.total) * 100).toFixed(1)}%`}
+              subtitle={`${computedStats?.residentialPercent}%`}
               icon={Home}
               variant="secondary"
             />
             <StatCard
               title="Commercial"
               value={stats.commercial.toLocaleString()}
-              subtitle={`${((stats.commercial / stats.total) * 100).toFixed(1)}%`}
+              subtitle={`${computedStats?.commercialPercent}%`}
               icon={Store}
               variant="accent"
             />
             <StatCard
               title="Industrial"
               value={stats.industrial.toLocaleString()}
-              subtitle={`${((stats.industrial / stats.total) * 100).toFixed(1)}%`}
+              subtitle={`${computedStats?.industrialPercent}%`}
               icon={Factory}
             />
           </>
@@ -105,7 +122,7 @@ export default function DashboardOverview() {
         )}
       </div>
 
-      {/* Charts Row */}
+      {/* Charts Row - Lazy loaded */}
       <div className="grid lg:grid-cols-2 gap-6">
         {isLoading ? (
           <>
@@ -114,14 +131,15 @@ export default function DashboardOverview() {
           </>
         ) : (
           <>
-            <BuildingTypePieChart stats={stats} />
-            <SizeDistributionChart stats={stats} />
+            <MemoizedBuildingTypePieChart stats={stats} />
+            <MemoizedSizeDistributionChart stats={stats} />
           </>
         )}
       </div>
 
       {/* Recent Activity */}
-      <RecentActivity />
+      {!isLoading && <MemoizedRecentActivity />}
     </div>
   )
 }
+

@@ -1,11 +1,7 @@
 import type React from "react"
 import type { Metadata, Viewport } from "next"
-import { Inter, JetBrains_Mono } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
 import "./globals.css"
-
-const _inter = Inter({ subsets: ["latin"], variable: "--font-inter" })
-const _jetbrainsMono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono" })
 
 export const metadata: Metadata = {
   title: "FastFind360 - Government Property Intelligence Platform",

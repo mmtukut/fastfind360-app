@@ -3,6 +3,7 @@ import { HeroSection } from "@/components/hero-section"
 import { ProblemSection } from "@/components/problem-section"
 import { SolutionSection } from "@/components/solution-section"
 import { FeaturesSection } from "@/components/features-section"
+import { GlobalUseCases } from "@/components/global-use-cases"
 import { CaseStudySection } from "@/components/case-study-section"
 import { PricingSection } from "@/components/pricing-section"
 import { ContactSection } from "@/components/contact-section"
@@ -16,6 +17,7 @@ export default function HomePage() {
       <ProblemSection />
       <SolutionSection />
       <FeaturesSection />
+      <GlobalUseCases />
       <CaseStudySection />
       <PricingSection />
       <ContactSection />

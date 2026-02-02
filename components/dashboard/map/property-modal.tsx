@@ -1,11 +1,20 @@
 "use client"
 
 import { useState } from "react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { formatCurrency } from "@/lib/buildings-data"
-import { Home, Store, Factory, MapPin, Ruler, Target, Banknote, Download, Flag, RefreshCw, Loader2 } from "lucide-react"
+import { Separator } from "@/components/ui/separator"
+import { 
+  AlertTriangle, 
+  Building as BuildingIcon, 
+  MapPin, 
+  Calendar, 
+  TrendingUp,
+  FileText,
+  Camera,
+  Send
+} from "lucide-react"
 import type { Building } from "@/lib/types"
 
 interface PropertyModalProps {
@@ -14,175 +23,164 @@ interface PropertyModalProps {
   onClose: () => void
 }
 
-const classificationIcons = {
-  Residential: Home,
-  Commercial: Store,
-  Industrial: Factory,
-}
-
-const classificationColors = {
-  Residential: "bg-secondary text-secondary-foreground",
-  Commercial: "bg-accent text-accent-foreground",
-  Industrial: "bg-destructive text-destructive-foreground",
-}
-
 export function PropertyModal({ building, open, onClose }: PropertyModalProps) {
-  const [isReclassifying, setIsReclassifying] = useState(false)
-  const [reclassifyResult, setReclassifyResult] = useState<string | null>(null)
+  const [timeTravelYear, setTimeTravelYear] = useState(2024)
 
   if (!building) return null
 
-  const Icon = classificationIcons[building.classification]
-
-  const handleReclassify = async () => {
-    setIsReclassifying(true)
-    setReclassifyResult(null)
-
-    try {
-      const response = await fetch("/api/classify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          area: building.area_in_meters,
-          latitude: building.latitude,
-          longitude: building.longitude,
-          confidence: building.confidence,
-        }),
-      })
-
-      if (!response.ok) throw new Error("Classification failed")
-
-      const result = await response.json()
-      setReclassifyResult(result.classification || result.predicted_class || "Unknown")
-    } catch (error) {
-      console.error("Reclassify error:", error)
-      setReclassifyResult("Error")
-    } finally {
-      setIsReclassifying(false)
-    }
-  }
-
-  const handleExport = () => {
-    const csv = [
-      ["ID", "Latitude", "Longitude", "Area (m²)", "Classification", "Confidence", "Est. Tax"].join(","),
-      [
-        building.id,
-        building.latitude,
-        building.longitude,
-        building.area_in_meters,
-        building.classification,
-        building.confidence,
-        building.estimated_tax,
-      ].join(","),
-    ].join("\n")
-
-    const blob = new Blob([csv], { type: "text/csv" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `property-${building.id}.csv`
-    a.click()
-  }
+  const isUnmapped = building.confidence < 0.8
+  const estimatedTax = building.estimated_tax ?? 0
+  const estimatedValue = estimatedTax * 200 // Rough estimation
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-3">
-            <div
-              className={`w-10 h-10 rounded-lg flex items-center justify-center ${classificationColors[building.classification]}`}
-            >
-              <Icon className="w-5 h-5" />
-            </div>
+          <div className="flex items-center justify-between">
             <div>
-              <div>Property Details</div>
-              <div className="text-sm font-normal text-muted-foreground">ID: #{building.id}</div>
+              <h2 className="text-xl font-semibold text-gray-900">Property Intelligence</h2>
+              <div className="flex items-center gap-2 mt-1">
+                <MapPin className="w-4 h-4 text-gray-500" />
+                <span className="text-sm text-gray-600">
+                  Plot {building.id.split('-')[1]}, Tudun Wada, Gombe
+                </span>
+              </div>
             </div>
-          </DialogTitle>
+            
+            <Badge 
+              variant="secondary" 
+              className={
+                isUnmapped 
+                  ? "bg-red-100 text-red-800 border-red-200 animate-pulse" 
+                  : "bg-green-100 text-green-800 border-green-200"
+              }
+            >
+              {isUnmapped ? (
+                <div className="flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3" />
+                  UNREGISTERED
+                </div>
+              ) : (
+                "COMPLIANT"
+              )}
+            </Badge>
+          </div>
         </DialogHeader>
 
-        <div className="space-y-4">
-          {/* Classification Badge */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <Badge className={classificationColors[building.classification]}>{building.classification}</Badge>
-            <Badge variant="outline">{(building.confidence * 100).toFixed(1)}% confidence</Badge>
-            {reclassifyResult && (
-              <Badge variant="secondary" className="bg-primary/10 text-primary">
-                AI: {reclassifyResult}
-              </Badge>
-            )}
+        <div className="space-y-6">
+          {/* Time Travel Slider */}
+          <div className="bg-gray-50 rounded-lg p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Calendar className="w-5 h-5 text-blue-600" />
+              <h3 className="font-medium text-gray-900">Time Travel Evidence</h3>
+            </div>
+            
+            <div className="flex items-center gap-4 mb-4">
+              <span className="text-sm font-medium">2020</span>
+              <input
+                type="range"
+                min="2020"
+                max="2024"
+                value={timeTravelYear}
+                onChange={(e) => setTimeTravelYear(parseInt(e.target.value))}
+                className="flex-1"
+              />
+              <span className="text-sm font-medium">2024</span>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-white rounded-lg p-3 border border-gray-200">
+                <div className="text-xs text-gray-500 mb-2">2020 (Empty Land)</div>
+                <div className="h-24 bg-gray-200 rounded flex items-center justify-center">
+                  <Camera className="w-8 h-8 text-gray-400" />
+                </div>
+              </div>
+              <div className="bg-white rounded-lg p-3 border border-gray-200">
+                <div className="text-xs text-gray-500 mb-2">2024 (Building)</div>
+                <div className="h-24 bg-blue-100 rounded flex items-center justify-center">
+                  <BuildingIcon className="w-8 h-8 text-blue-600" />
+                </div>
+              </div>
+            </div>
+            
+            <p className="text-xs text-gray-600 mt-2">
+              AI Analysis: New construction detected. Building appears to be {timeTravelYear - 2020} years old.
+            </p>
           </div>
 
-          {/* Property Details */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <div className="text-xs text-muted-foreground flex items-center gap-1">
-                <Ruler className="w-3 h-3" />
-                Area
-              </div>
-              <div className="font-semibold">{building.area_in_meters.toLocaleString()} m²</div>
-            </div>
+          <Separator />
 
-            {building.perimeter && (
-              <div className="space-y-1">
-                <div className="text-xs text-muted-foreground">Perimeter</div>
-                <div className="font-semibold">{building.perimeter.toFixed(1)} m</div>
+          {/* Building Details */}
+          <div>
+            <h3 className="font-medium text-gray-900 mb-3">Building Analysis</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-sm text-gray-600">Building Type</p>
+                <p className="font-medium">{building.classification} - AI Detected</p>
               </div>
-            )}
-
-            <div className="space-y-1">
-              <div className="text-xs text-muted-foreground flex items-center gap-1">
-                <Target className="w-3 h-3" />
-                Confidence
+              <div>
+                <p className="text-sm text-gray-600">Area</p>
+                <p className="font-medium">{building.area_in_meters.toLocaleString()} m²</p>
               </div>
-              <div className="font-semibold">{(building.confidence * 100).toFixed(1)}%</div>
-            </div>
-
-            <div className="space-y-1">
-              <div className="text-xs text-muted-foreground flex items-center gap-1">
-                <Banknote className="w-3 h-3" />
-                Est. Annual Tax
+              <div>
+                <p className="text-sm text-gray-600">Confidence Score</p>
+                <p className="font-medium">{(building.confidence * 100).toFixed(1)}%</p>
               </div>
-              <div className="font-semibold text-accent">{formatCurrency(building.estimated_tax || 0)}</div>
+              <div>
+                <p className="text-sm text-gray-600">Detection Date</p>
+                <p className="font-medium">January 2024</p>
+              </div>
             </div>
           </div>
 
-          {/* Location */}
-          <div className="p-3 bg-muted rounded-lg">
-            <div className="text-xs text-muted-foreground flex items-center gap-1 mb-2">
-              <MapPin className="w-3 h-3" />
-              Location
-            </div>
-            <div className="font-mono text-sm">
-              <div>Lat: {building.latitude.toFixed(6)}°</div>
-              <div>Lon: {building.longitude.toFixed(6)}°</div>
+          <Separator />
+
+          {/* Financials */}
+          <div>
+            <h3 className="font-medium text-gray-900 mb-3">Financial Analysis</h3>
+            <div className="bg-gray-50 rounded-lg p-4">
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <div>
+                  <p className="text-sm text-gray-600">Estimated Property Value</p>
+                  <p className="text-xl font-bold text-gray-900">
+                    ₦{estimatedValue.toLocaleString()}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-600">Annual Tax Liability</p>
+                  <p className="text-xl font-bold text-red-600">
+                    ₦{estimatedTax.toLocaleString()}
+                  </p>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-2 text-sm text-gray-600">
+                <TrendingUp className="w-4 h-4" />
+                <span>Potential 5-year revenue: ₦{(estimatedTax * 5).toLocaleString()}</span>
+              </div>
             </div>
           </div>
 
-          {/* Actions */}
-          <div className="flex gap-2 pt-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="flex-1 bg-transparent"
-              onClick={handleReclassify}
-              disabled={isReclassifying}
-            >
-              {isReclassifying ? (
-                <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-              ) : (
-                <RefreshCw className="w-4 h-4 mr-1" />
-              )}
-              Reclassify
+          {/* Action Buttons */}
+          <div className="space-y-3">
+            <Button className="w-full bg-red-600 hover:bg-red-700 text-white" size="lg">
+              <Send className="w-5 h-5 mr-2" />
+              Generate Tax Notice
             </Button>
-            <Button variant="outline" size="sm" className="flex-1 bg-transparent">
-              <Flag className="w-4 h-4 mr-1" />
-              Flag
-            </Button>
-            <Button variant="outline" size="sm" className="flex-1 bg-transparent" onClick={handleExport}>
-              <Download className="w-4 h-4 mr-1" />
-              Export
-            </Button>
+            <p className="text-xs text-gray-500 text-center">
+              Sends PDF notice to property owner and FIRS database
+            </p>
+            
+            <div className="grid grid-cols-2 gap-3">
+              <Button variant="outline" className="w-full">
+                <FileText className="w-4 h-4 mr-2" />
+                Download Report
+              </Button>
+              <Button variant="outline" className="w-full">
+                <Camera className="w-4 h-4 mr-2" />
+                Request Photo
+              </Button>
+            </div>
           </div>
         </div>
       </DialogContent>

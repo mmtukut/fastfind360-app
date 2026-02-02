@@ -1,11 +1,26 @@
 "use client"
 
+import { lazy, Suspense, memo } from "react"
 import { useBuildings } from "@/hooks/use-buildings"
-import { RevenueComparisonChart } from "@/components/dashboard/analytics/revenue-chart"
-import { LGARevenueChart } from "@/components/dashboard/analytics/lga-revenue-chart"
-import { DensityHeatmap } from "@/components/dashboard/analytics/density-heatmap"
-import { CommercialAnalysis } from "@/components/dashboard/analytics/commercial-analysis"
 import { Skeleton } from "@/components/ui/skeleton"
+
+// Lazy load chart components since they're heavy
+const RevenueComparisonChart = lazy(() =>
+  import("@/components/dashboard/analytics/revenue-chart").then((mod) => ({
+    default: mod.RevenueComparisonChart,
+  }))
+)
+const LGARevenueChart = lazy(() =>
+  import("@/components/dashboard/analytics/lga-revenue-chart").then((mod) => ({ default: mod.LGARevenueChart }))
+)
+const DensityHeatmap = lazy(() =>
+  import("@/components/dashboard/analytics/density-heatmap").then((mod) => ({ default: mod.DensityHeatmap }))
+)
+const CommercialAnalysis = lazy(() =>
+  import("@/components/dashboard/analytics/commercial-analysis").then((mod) => ({
+    default: mod.CommercialAnalysis,
+  }))
+)
 
 // Simulated current tax roll (5,000 properties as per spec)
 const CURRENT_TAX_ROLL = 50000000 // ₦50M
@@ -36,7 +51,9 @@ export default function AnalyticsPage() {
       {isLoading ? (
         <Skeleton className="h-96 rounded-xl" />
       ) : (
-        <RevenueComparisonChart currentRevenue={CURRENT_TAX_ROLL} potentialRevenue={stats.revenuePotential} />
+        <Suspense fallback={<Skeleton className="h-96 rounded-xl" />}>
+          <RevenueComparisonChart currentRevenue={CURRENT_TAX_ROLL} potentialRevenue={stats.revenuePotential} />
+        </Suspense>
       )}
 
       {/* Two Column Layout */}
@@ -48,14 +65,25 @@ export default function AnalyticsPage() {
           </>
         ) : (
           <>
-            <DensityHeatmap buildings={buildings} />
-            <CommercialAnalysis buildings={buildings} stats={stats} />
+            <Suspense fallback={<Skeleton className="h-96 rounded-xl" />}>
+              <DensityHeatmap buildings={buildings} />
+            </Suspense>
+            <Suspense fallback={<Skeleton className="h-96 rounded-xl" />}>
+              <CommercialAnalysis buildings={buildings} stats={stats} />
+            </Suspense>
           </>
         )}
       </div>
 
       {/* LGA Breakdown */}
-      {isLoading ? <Skeleton className="h-96 rounded-xl" /> : <LGARevenueChart stats={stats} />}
+      {isLoading ? (
+        <Skeleton className="h-96 rounded-xl" />
+      ) : (
+        <Suspense fallback={<Skeleton className="h-96 rounded-xl" />}>
+          <LGARevenueChart stats={stats} />
+        </Suspense>
+      )}
     </div>
   )
 }
+

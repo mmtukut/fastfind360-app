@@ -3,15 +3,20 @@
 import useSWR from "swr"
 import type { Building, BuildingStats } from "@/lib/types"
 
-async function buildingsFetcher(): Promise<{
-  buildings: Building[]
+type UseBuildingsOptions = {
+  statsOnly?: boolean
+}
+
+async function buildingsFetcher(url: string): Promise<{
+  buildings?: Building[]
   stats: BuildingStats
 }> {
   try {
-    const response = await fetch("/api/buildings", {
+    const response = await fetch(url, {
       headers: {
         Accept: "application/json",
       },
+      signal: AbortSignal.timeout(20000),
     })
 
     if (!response.ok) {
@@ -33,14 +38,15 @@ async function buildingsFetcher(): Promise<{
   }
 }
 
-export function useBuildings() {
-  const { data, error, isLoading, mutate } = useSWR("buildings-data", buildingsFetcher, {
+export function useBuildings(options: UseBuildingsOptions = {}) {
+  const url = options.statsOnly ? "/api/buildings?statsOnly=1" : "/api/buildings"
+  const { data, error, isLoading, mutate } = useSWR(url, buildingsFetcher, {
     revalidateOnFocus: false,
-    dedupingInterval: 60000,
-    revalidateOnReconnect: false,
+    dedupingInterval: 30000,
+    revalidateOnReconnect: true,
     shouldRetryOnError: true,
-    errorRetryCount: 3,
-    errorRetryInterval: 5000,
+    errorRetryCount: 5,
+    errorRetryInterval: 3000,
   })
 
   return {

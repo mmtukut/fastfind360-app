@@ -1,305 +1,417 @@
 "use client"
 
-import { useEffect, useRef, useState, useMemo } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import mapboxgl from "mapbox-gl"
-import "mapbox-gl/dist/mapbox-gl.css"
 import type { Building, FilterState } from "@/lib/types"
-import { Button } from "@/components/ui/button"
-import { Layers, Locate } from "lucide-react"
+import { LoadingSpinner } from "@/components/ui/loading-spinner"
+import { AlertCircle } from "lucide-react"
 
-mapboxgl.accessToken =
-  process.env.NEXT_PUBLIC_MAPBOX_TOKEN ||
-  "pk.eyJ1IjoibW10dWt1ciIsImEiOiJjbWhveXFmaGQwZHpwMmxwZ3QxeGhzb2dmIn0.EgXZbVsN1wsiYH4jfxc63Q"
+const MAPBOX_ACCESS_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN
+
+export const classificationColors: Record<string, string> = {
+  Residential: "#3B82F6",
+  Commercial: "#F59E0B",
+  Industrial: "#8B5CF6",
+  default: "#9CA3AF",
+}
+
+type Position = [number, number]
+
+type PolygonGeometry = {
+  type: "Polygon"
+  coordinates: Position[][]
+}
+
+type MultiPolygonGeometry = {
+  type: "MultiPolygon"
+  coordinates: Position[][][]
+}
+
+type Geometry = PolygonGeometry | MultiPolygonGeometry
+
+type FeatureProperties = {
+  id: string
+  classification: Building["classification"]
+  confidence: number
+  area_in_meters: number
+  estimated_tax?: number
+  isUnmapped: boolean
+}
+
+type Feature = {
+  type: "Feature"
+  id: string
+  geometry: Geometry
+  properties: FeatureProperties
+}
+
+type FeatureCollection = {
+  type: "FeatureCollection"
+  features: Feature[]
+}
 
 interface MapboxMapProps {
   buildings: Building[]
   filters: FilterState
   onBuildingClick: (building: Building) => void
-  isLoading: boolean
+  isLoading?: boolean
+  selectedBuildingId?: string | null
 }
 
-const GOMBE_CENTER: [number, number] = [11.1672, 10.2897] // [lng, lat]
-
-const CLASSIFICATION_COLORS: Record<string, string> = {
-  Residential: "#2563EB",
-  Commercial: "#059669",
-  Industrial: "#DC2626",
+const toNumberPair = (pair: string): Position | null => {
+  const [lng, lat] = pair.trim().split(/\s+/).map(Number)
+  if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null
+  return [lng, lat]
 }
 
-export function MapboxMap({ buildings, filters, onBuildingClick, isLoading }: MapboxMapProps) {
-  const mapContainer = useRef<HTMLDivElement>(null)
+const parseWktRing = (ring: string): Position[] =>
+  ring
+    .split(",")
+    .map(toNumberPair)
+    .filter((coord): coord is Position => Boolean(coord))
+
+const parseWktPolygon = (value: string): PolygonGeometry | null => {
+  const body = value.replace(/^POLYGON\s*\(\(/i, "").replace(/\)\)\s*$/i, "")
+  if (!body) return null
+  const ring = parseWktRing(body)
+  if (!ring.length) return null
+  return { type: "Polygon", coordinates: [ring] }
+}
+
+const parseWktMultiPolygon = (value: string): MultiPolygonGeometry | null => {
+  const body = value.replace(/^MULTIPOLYGON\s*\(\(\(/i, "").replace(/\)\)\)\s*$/i, "")
+  if (!body) return null
+  const polygons = body
+    .split(/\)\s*,\s*\(\(/)
+    .map((polygon) =>
+      polygon
+        .split(/\)\s*,\s*\(/)
+        .map(parseWktRing)
+        .filter((ring) => ring.length > 0),
+    )
+    .filter((rings) => rings.length > 0)
+
+  if (!polygons.length) return null
+  return { type: "MultiPolygon", coordinates: polygons }
+}
+
+const parseGeometry = (geometry?: string): Geometry | null => {
+  if (!geometry) return null
+  const trimmed = geometry.trim()
+  if (!trimmed) return null
+
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(trimmed)
+      if (!parsed) return null
+
+      if (parsed.type === "Feature" && parsed.geometry) {
+        if (parsed.geometry.type === "Polygon" || parsed.geometry.type === "MultiPolygon") {
+          return parsed.geometry
+        }
+      }
+
+      if (parsed.type === "Polygon" || parsed.type === "MultiPolygon") return parsed
+
+      if (Array.isArray(parsed)) {
+        return { type: "Polygon", coordinates: parsed as Position[][] }
+      }
+
+      if (parsed.coordinates && parsed.type) {
+        if (parsed.type === "Polygon" || parsed.type === "MultiPolygon") return parsed
+      }
+
+      return null
+    } catch {
+      return null
+    }
+  }
+
+  if (trimmed.toUpperCase().startsWith("MULTIPOLYGON")) {
+    return parseWktMultiPolygon(trimmed)
+  }
+
+  if (trimmed.toUpperCase().startsWith("POLYGON")) {
+    return parseWktPolygon(trimmed)
+  }
+
+  return null
+}
+
+const collectCoordinates = (geometry: Geometry): Position[] => {
+  if (geometry.type === "Polygon") {
+    return geometry.coordinates.flat()
+  }
+
+  return geometry.coordinates.flatMap((polygon) => polygon.flat())
+}
+
+const getGeometryCenter = (geometry: Geometry): Position => {
+  const coords = collectCoordinates(geometry)
+  if (!coords.length) return [0, 0]
+
+  const [lngSum, latSum] = coords.reduce(
+    (acc, coord) => [acc[0] + coord[0], acc[1] + coord[1]],
+    [0, 0],
+  )
+
+  return [lngSum / coords.length, latSum / coords.length]
+}
+
+export function MapboxMap({
+  buildings,
+  filters,
+  onBuildingClick,
+  isLoading,
+  selectedBuildingId,
+}: MapboxMapProps) {
+  const mapContainer = useRef<HTMLDivElement | null>(null)
   const map = useRef<mapboxgl.Map | null>(null)
-  const [mapLoaded, setMapLoaded] = useState(false)
-  const [mapStyle, setMapStyle] = useState<"satellite" | "streets">("satellite")
+  const onBuildingClickRef = useRef(onBuildingClick)
+  const [isMapLoaded, setIsMapLoaded] = useState(false)
+  const [mapError, setMapError] = useState<string | null>(null)
 
-  // Filter buildings
+  useEffect(() => {
+    onBuildingClickRef.current = onBuildingClick
+  }, [onBuildingClick])
+
+  const buildingById = useMemo(() => new Map(buildings.map((building) => [building.id, building])), [buildings])
+
   const filteredBuildings = useMemo(() => {
-    return buildings.filter((b) => {
-      if (!filters.classifications.includes(b.classification)) return false
-      if (b.area_in_meters < filters.minArea || b.area_in_meters > filters.maxArea) return false
-      if (b.confidence < filters.minConfidence) return false
-      return true
+    return buildings.filter((building) => {
+      const matchesClassification =
+        filters.classifications.length === 0 || filters.classifications.includes(building.classification)
+      const matchesArea =
+        building.area_in_meters >= filters.minArea && building.area_in_meters <= filters.maxArea
+      const matchesConfidence = building.confidence >= filters.minConfidence
+      const matchesUnmapped = !filters.showOnlyUnmapped || building.confidence < 0.8
+      const matchesMinValue = !filters.minValue || (building.estimated_tax ?? 0) >= (filters.minValue ?? 0)
+
+      return matchesClassification && matchesArea && matchesConfidence && matchesUnmapped && matchesMinValue
     })
   }, [buildings, filters])
 
-  // Convert buildings to GeoJSON
-  const geojsonData = useMemo(() => {
-    return {
-      type: "FeatureCollection" as const,
-      features: filteredBuildings.slice(0, 100000).map((building) => ({
-        type: "Feature" as const,
-        properties: {
-          id: building.id,
-          classification: building.classification,
-          area: building.area_in_meters,
-          confidence: building.confidence,
-          tax: building.estimated_tax,
-        },
-        geometry: {
-          type: "Point" as const,
-          coordinates: [building.longitude, building.latitude],
-        },
-      })),
-    }
+  const geometryById = useMemo(() => {
+    const mapping = new Map<string, Geometry>()
+    filteredBuildings.forEach((building) => {
+      const geometry = parseGeometry(building.geometry)
+      if (geometry) mapping.set(building.id, geometry)
+    })
+    return mapping
   }, [filteredBuildings])
 
-  // Initialize map
+  const geojsonData = useMemo<FeatureCollection>(
+    () => ({
+      type: "FeatureCollection",
+      features: filteredBuildings.reduce<Feature[]>((acc, building) => {
+        const geometry = geometryById.get(building.id)
+        if (!geometry) return acc
+
+        acc.push({
+          type: "Feature",
+          id: building.id,
+          geometry,
+          properties: {
+            id: building.id,
+            classification: building.classification,
+            confidence: building.confidence,
+            area_in_meters: building.area_in_meters,
+            estimated_tax: building.estimated_tax,
+            isUnmapped: building.confidence < 0.8,
+          },
+        })
+
+        return acc
+      }, []),
+    }),
+    [filteredBuildings, geometryById],
+  )
+
   useEffect(() => {
-    if (!mapContainer.current || map.current) return
+    if (!MAPBOX_ACCESS_TOKEN) {
+      const errorMsg = "Mapbox Access Token is missing. Please check your environment configuration."
+      console.error(errorMsg)
+      setMapError(errorMsg)
+      return
+    }
 
-    map.current = new mapboxgl.Map({
-      container: mapContainer.current,
-      style:
-        mapStyle === "satellite"
-          ? "mapbox://styles/mapbox/satellite-streets-v12"
-          : "mapbox://styles/mapbox/streets-v12",
-      center: GOMBE_CENTER,
-      zoom: 10,
-    })
+    mapboxgl.accessToken = MAPBOX_ACCESS_TOKEN
 
-    map.current.addControl(new mapboxgl.NavigationControl(), "top-right")
-    map.current.addControl(new mapboxgl.ScaleControl(), "bottom-right")
+    if (map.current) return
 
-    map.current.on("load", () => {
-      setMapLoaded(true)
-    })
+    if (mapContainer.current) {
+      try {
+        const mapInstance = new mapboxgl.Map({
+          container: mapContainer.current,
+          style: "mapbox://styles/mapbox/satellite-streets-v12",
+          center: [11.1672, 10.2897], // Gombe State, Nigeria
+          zoom: 12,
+          pitch: 45,
+          antialias: true,
+        })
+
+        map.current = mapInstance
+
+        // Error handling for map loading issues
+        mapInstance.on("error", (e: mapboxgl.ErrorEvent) => {
+          console.error("Mapbox error:", e)
+          setMapError("Failed to load map tiles. Please check your internet connection.")
+        })
+
+        mapInstance.addControl(new mapboxgl.NavigationControl({ visualizePitch: true }), "top-right")
+
+        mapInstance.on("load", () => {
+          setIsMapLoaded(true)
+
+          mapInstance.addSource("mapbox-dem", {
+            type: "raster-dem",
+            url: "mapbox://mapbox.mapbox-terrain-dem-v1",
+            tileSize: 512,
+            maxzoom: 14,
+          })
+          mapInstance.setTerrain({ source: "mapbox-dem", exaggeration: 1.3 })
+        })
+
+        mapInstance.on("click", "buildings-fill", (event: mapboxgl.MapLayerMouseEvent) => {
+          if (event.features && event.features.length > 0) {
+            const feature = event.features[0]
+            const id = feature.properties?.id
+
+            if (id && buildingById.has(id)) {
+              onBuildingClickRef.current(buildingById.get(id) as Building)
+            }
+          }
+        })
+
+        mapInstance.on("mouseenter", "buildings-fill", () => {
+          mapInstance.getCanvas().style.cursor = "pointer"
+        })
+
+        mapInstance.on("mouseleave", "buildings-fill", () => {
+          mapInstance.getCanvas().style.cursor = ""
+        })
+      } catch (initError) {
+        console.error("Failed to initialize map:", initError)
+      }
+    }
 
     return () => {
-      map.current?.remove()
-      map.current = null
+      try {
+        if (map.current) {
+          map.current.remove()
+          map.current = null
+        }
+      } catch (error) {
+        console.warn("Error cleaning up map:", error)
+        map.current = null
+      }
     }
-  }, [])
+  }, [buildingById])
 
-  // Update map style
   useEffect(() => {
-    if (!map.current) return
+    if (!map.current || !isMapLoaded || !map.current.isStyleLoaded()) return
 
-    const styleUrl =
-      mapStyle === "satellite" ? "mapbox://styles/mapbox/satellite-streets-v12" : "mapbox://styles/mapbox/streets-v12"
+    const mapInstance = map.current
+    const source = mapInstance.getSource("buildings") as mapboxgl.GeoJSONSource | undefined
 
-    map.current.setStyle(styleUrl)
-
-    // Re-add source and layers after style change
-    map.current.once("style.load", () => {
-      addBuildingsLayer()
-    })
-  }, [mapStyle])
-
-  // Add buildings layer function
-  const addBuildingsLayer = () => {
-    if (!map.current) return
-
-    // Remove existing source/layers if they exist
-    if (map.current.getSource("buildings")) {
-      map.current.removeLayer("buildings-heat")
-      map.current.removeLayer("buildings-points")
-      map.current.removeSource("buildings")
+    if (source) {
+      source.setData(geojsonData as unknown as GeoJSON.FeatureCollection)
+      return
     }
 
-    // Add source
-    map.current.addSource("buildings", {
+    mapInstance.addSource("buildings", {
       type: "geojson",
-      data: geojsonData,
-      cluster: true,
-      clusterMaxZoom: 14,
-      clusterRadius: 50,
+      data: geojsonData as unknown as GeoJSON.FeatureCollection,
     })
 
-    // Add heatmap layer for zoomed out view
-    map.current.addLayer({
-      id: "buildings-heat",
-      type: "heatmap",
+    mapInstance.addLayer({
+      id: "buildings-fill",
+      type: "fill",
       source: "buildings",
-      maxzoom: 12,
       paint: {
-        "heatmap-weight": ["interpolate", ["linear"], ["get", "area"], 0, 0, 1000, 1],
-        "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 0, 1, 12, 3],
-        "heatmap-color": [
-          "interpolate",
-          ["linear"],
-          ["heatmap-density"],
-          0,
-          "rgba(33,102,172,0)",
-          0.2,
-          "rgb(103,169,207)",
-          0.4,
-          "rgb(209,229,240)",
-          0.6,
-          "rgb(253,219,199)",
-          0.8,
-          "rgb(239,138,98)",
-          1,
-          "rgb(178,24,43)",
-        ],
-        "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 0, 2, 12, 20],
-        "heatmap-opacity": ["interpolate", ["linear"], ["zoom"], 10, 1, 14, 0],
-      },
-    })
-
-    // Add circle layer for individual buildings when zoomed in
-    map.current.addLayer({
-      id: "buildings-points",
-      type: "circle",
-      source: "buildings",
-      minzoom: 10,
-      paint: {
-        "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, 2, 14, 4, 18, 8],
-        "circle-color": [
+        "fill-color": [
           "match",
           ["get", "classification"],
           "Residential",
-          CLASSIFICATION_COLORS.Residential,
+          classificationColors.Residential,
           "Commercial",
-          CLASSIFICATION_COLORS.Commercial,
+          classificationColors.Commercial,
           "Industrial",
-          CLASSIFICATION_COLORS.Industrial,
-          "#888888",
+          classificationColors.Industrial,
+          classificationColors.default,
         ],
-        "circle-opacity": 0.8,
-        "circle-stroke-width": 1,
-        "circle-stroke-color": "#ffffff",
-        "circle-stroke-opacity": 0.5,
+        "fill-opacity": ["case", ["get", "isUnmapped"], 0.65, 0.35],
       },
     })
 
-    // Add click handler
-    map.current.on("click", "buildings-points", (e) => {
-      if (!e.features || e.features.length === 0) return
-
-      const feature = e.features[0]
-      const props = feature.properties
-
-      // Find the original building
-      const building = buildings.find((b) => b.id === props?.id)
-      if (building) {
-        onBuildingClick(building)
-      }
+    mapInstance.addLayer({
+      id: "buildings-outline",
+      type: "line",
+      source: "buildings",
+      paint: {
+        "line-color": "#FFFFFF",
+        "line-width": 1,
+        "line-opacity": 0.35,
+      },
     })
+  }, [geojsonData, isMapLoaded])
 
-    // Change cursor on hover
-    map.current.on("mouseenter", "buildings-points", () => {
-      if (map.current) map.current.getCanvas().style.cursor = "pointer"
-    })
-
-    map.current.on("mouseleave", "buildings-points", () => {
-      if (map.current) map.current.getCanvas().style.cursor = ""
-    })
-  }
-
-  // Update buildings data
   useEffect(() => {
-    if (!map.current || !mapLoaded) return
+    if (!map.current || !isMapLoaded || !map.current.isStyleLoaded()) return
 
-    const source = map.current.getSource("buildings") as mapboxgl.GeoJSONSource
-    if (source) {
-      source.setData(geojsonData)
-    } else {
-      addBuildingsLayer()
+    const mapInstance = map.current
+
+    if (mapInstance.getLayer("selected-building-outline")) {
+      mapInstance.removeLayer("selected-building-outline")
     }
-  }, [geojsonData, mapLoaded])
 
-  const handleZoomIn = () => {
-    map.current?.zoomIn()
-  }
+    if (selectedBuildingId) {
+      mapInstance.addLayer({
+        id: "selected-building-outline",
+        type: "line",
+        source: "buildings",
+        paint: {
+          "line-color": "#FDE047",
+          "line-width": 3,
+          "line-opacity": 1,
+        },
+        filter: ["==", ["get", "id"], selectedBuildingId],
+      })
 
-  const handleZoomOut = () => {
-    map.current?.zoomOut()
-  }
+      const geometry = geometryById.get(selectedBuildingId)
+      const selected = buildingById.get(selectedBuildingId)
 
-  const handleRecenter = () => {
-    map.current?.flyTo({
-      center: GOMBE_CENTER,
-      zoom: 10,
-      duration: 1500,
-    })
-  }
+      const center = geometry
+        ? getGeometryCenter(geometry)
+        : selected
+          ? ([selected.longitude, selected.latitude] as Position)
+          : null
 
-  const toggleStyle = () => {
-    setMapStyle((s) => (s === "satellite" ? "streets" : "satellite"))
-  }
-
-  if (isLoading) {
-    return (
-      <div className="flex-1 flex items-center justify-center bg-muted/30">
-        <div className="text-center">
-          <div className="animate-spin w-8 h-8 border-4 border-secondary border-t-transparent rounded-full mx-auto mb-4" />
-          <p className="text-muted-foreground">Loading buildings...</p>
-        </div>
-      </div>
-    )
-  }
+      if (center) {
+        mapInstance.flyTo({ center, zoom: 18, pitch: 60, duration: 1200 })
+      }
+    }
+  }, [buildingById, geometryById, isMapLoaded, selectedBuildingId])
 
   return (
-    <div className="flex-1 relative">
+    <div className="relative h-full w-full">
       <div ref={mapContainer} className="absolute inset-0" />
 
-      {/* Custom controls overlay */}
-      <div className="absolute top-4 left-4 z-10 flex flex-col gap-2">
-        <Button
-          variant="secondary"
-          size="icon"
-          onClick={toggleStyle}
-          className="shadow-lg bg-card/90 backdrop-blur-sm"
-          title={mapStyle === "satellite" ? "Switch to Streets" : "Switch to Satellite"}
-        >
-          <Layers className="w-4 h-4" />
-        </Button>
-        <Button
-          variant="secondary"
-          size="icon"
-          onClick={handleRecenter}
-          className="shadow-lg bg-card/90 backdrop-blur-sm"
-          title="Recenter Map"
-        >
-          <Locate className="w-4 h-4" />
-        </Button>
-      </div>
+      {/* Loading State with iOS-style spinner - only show during initial load */}
+      {!isMapLoaded && !mapError && (
+        <LoadingSpinner backdrop />
+      )}
 
-      {/* Legend */}
-      <div className="absolute bottom-4 left-4 z-10 bg-card/90 backdrop-blur-sm rounded-lg p-3 shadow-lg">
-        <div className="text-xs font-medium mb-2">Building Types</div>
-        <div className="space-y-1.5">
-          <div className="flex items-center gap-2 text-xs">
-            <span className="w-3 h-3 rounded-full" style={{ backgroundColor: CLASSIFICATION_COLORS.Residential }} />
-            <span>Residential ({filters.classifications.includes("Residential") ? "On" : "Off"})</span>
-          </div>
-          <div className="flex items-center gap-2 text-xs">
-            <span className="w-3 h-3 rounded-full" style={{ backgroundColor: CLASSIFICATION_COLORS.Commercial }} />
-            <span>Commercial ({filters.classifications.includes("Commercial") ? "On" : "Off"})</span>
-          </div>
-          <div className="flex items-center gap-2 text-xs">
-            <span className="w-3 h-3 rounded-full" style={{ backgroundColor: CLASSIFICATION_COLORS.Industrial }} />
-            <span>Industrial ({filters.classifications.includes("Industrial") ? "On" : "Off"})</span>
+      {/* Error State */}
+      {mapError && (
+        <div className="absolute inset-0 flex items-center justify-center bg-background/95 backdrop-blur-sm">
+          <div className="text-center max-w-md px-6">
+            <AlertCircle className="w-12 h-12 text-destructive mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-foreground mb-2">Map Loading Error</h3>
+            <p className="text-sm text-muted-foreground">{mapError}</p>
           </div>
         </div>
-      </div>
-
-      {/* Stats overlay */}
-      <div className="absolute top-4 right-20 z-10 bg-card/90 backdrop-blur-sm rounded-lg p-3 shadow-lg">
-        <div className="text-xs text-muted-foreground">Showing</div>
-        <div className="text-lg font-bold">{filteredBuildings.length.toLocaleString()}</div>
-        <div className="text-xs text-muted-foreground">of {buildings.length.toLocaleString()} buildings</div>
-      </div>
+      )}
     </div>
   )
 }
