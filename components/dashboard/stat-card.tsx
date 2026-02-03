@@ -15,35 +15,35 @@ interface StatCardProps {
 
 export function StatCard({ title, value, subtitle, icon: Icon, trend, variant = "default" }: StatCardProps) {
   const variants = {
-    default: "bg-card border-border",
-    primary: "bg-primary/5 border-primary/20",
-    secondary: "bg-secondary/5 border-secondary/20",
-    accent: "bg-accent/5 border-accent/20",
+    default: "bg-[#112240]/50 border-slate-700 hover:border-slate-600",
+    primary: "bg-blue-900/20 border-blue-800/50 hover:border-blue-700",
+    secondary: "bg-emerald-900/10 border-emerald-800/30 hover:border-emerald-700",
+    accent: "bg-purple-900/10 border-purple-800/30 hover:border-purple-700",
   }
 
   const iconVariants = {
-    default: "bg-muted text-muted-foreground",
-    primary: "bg-primary/10 text-primary",
-    secondary: "bg-secondary/10 text-secondary",
-    accent: "bg-accent/10 text-accent",
+    default: "text-slate-400 bg-slate-800/50",
+    primary: "text-blue-400 bg-blue-900/30",
+    secondary: "text-emerald-400 bg-emerald-900/30",
+    accent: "text-purple-400 bg-purple-900/30",
   }
 
   return (
-    <div className={cn("rounded-xl border p-6", variants[variant])}>
+    <div className={cn("rounded-sm border p-5 backdrop-blur-sm transition-colors", variants[variant])}>
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-sm text-muted-foreground">{title}</p>
-          <p className="mt-2 text-3xl font-bold text-foreground">{value}</p>
-          {subtitle && <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>}
+          <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">{title}</p>
+          <p className="text-3xl font-mono text-white font-medium tracking-tight">{value}</p>
+          {subtitle && <p className="mt-2 text-xs text-slate-500 font-medium">{subtitle}</p>}
           {trend && (
-            <p className={cn("mt-2 text-sm font-medium", trend.positive ? "text-accent" : "text-destructive")}>
-              {trend.positive ? "+" : ""}
-              {trend.value}% from last period
+            <p className={cn("mt-2 text-xs font-mono font-bold flex items-center gap-1", trend.positive ? "text-emerald-400" : "text-red-400")}>
+              {trend.positive ? "▲" : "▼"}
+              {trend.value}%
             </p>
           )}
         </div>
-        <div className={cn("w-12 h-12 rounded-lg flex items-center justify-center", iconVariants[variant])}>
-          <Icon className="w-6 h-6" />
+        <div className={cn("w-10 h-10 rounded-sm flex items-center justify-center border border-white/5", iconVariants[variant])}>
+          <Icon className="w-5 h-5" strokeWidth={1.5} />
         </div>
       </div>
     </div>

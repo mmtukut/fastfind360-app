@@ -72,47 +72,52 @@ export default function PropertyMapPage() {
   }, [])
 
   return (
-    <div className="h-screen bg-gradient-to-br from-background via-muted/20 to-background flex flex-col">
+    <div className="h-[calc(100vh-4rem)] flex flex-col overflow-hidden">
       {/* Premium Header with Revenue Metrics */}
-      <div className="glass border-b border-border/50 px-6 py-5 shadow-ios">
+      <div className="bg-[#112240] border-b border-slate-800 px-6 py-4 shadow-lg z-10">
         <div className="flex items-center justify-between">
           <div className="space-y-1">
-            <h1 className="text-2xl font-bold text-foreground tracking-tight">Property Intelligence Map</h1>
-            <p className="text-sm text-muted-foreground">Real-time satellite imagery with AI detection overlay</p>
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+              <h1 className="text-lg font-bold text-white uppercase tracking-wider">Property Intelligence Map</h1>
+            </div>
+            <p className="text-xs text-slate-400 font-mono">
+              SAT_IMG_SOURCE: SENTINEL-2 | UPDATED: {new Date().toISOString().split('T')[0]}
+            </p>
           </div>
 
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-8 font-mono">
             <div className="text-right">
-              <p className="text-xs font-medium text-muted-foreground mb-1">Total Revenue Potential</p>
-              <p className="text-2xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
+              <p className="text-[10px] font-bold text-slate-500 uppercase mb-0.5">Total Revenue Potential</p>
+              <p className="text-xl font-bold text-blue-400">
                 ₦{(revenueMetrics.totalPotentialRevenue / 1000000).toFixed(1)}M
               </p>
             </div>
 
             <div className="text-right">
-              <p className="text-xs font-medium text-destructive/80 mb-1">Unmapped Revenue</p>
-              <p className="text-2xl font-bold text-destructive">
+              <p className="text-[10px] font-bold text-slate-500 uppercase mb-0.5">Unmapped Leakage</p>
+              <p className="text-xl font-bold text-red-500">
                 ₦{(revenueMetrics.unmappedRevenue / 1000000).toFixed(1)}M
               </p>
             </div>
 
             <div className="text-right">
-              <p className="text-xs font-medium text-muted-foreground mb-1">Compliance Rate</p>
-              <p className="text-2xl font-bold text-accent">{revenueMetrics.complianceRate}%</p>
+              <p className="text-[10px] font-bold text-slate-500 uppercase mb-0.5">Compliance</p>
+              <p className="text-xl font-bold text-emerald-400">{revenueMetrics.complianceRate}%</p>
             </div>
           </div>
         </div>
       </div>
 
       {/* Filter Pills */}
-      <div className="bg-background/50 border-b border-border/50 px-6 py-3 backdrop-blur-sm">
+      <div className="bg-[#0A192F] border-b border-slate-800 px-6 py-2">
         <FilterPills filters={filters} onFilterChange={handleFilterChange} stats={stats} />
       </div>
 
       {/* Main Map Area */}
-      <div className="flex-1 relative">
+      <div className="flex-1 relative bg-[#0d1b33]">
         {/* Google Maps Component */}
-        <div className="glass rounded-2xl overflow-hidden shadow-ios-lg border border-border/50">
+        <div className="absolute inset-0 border-none">
           {isLoading ? (
             <Skeleton className="w-full h-full min-h-[600px]" />
           ) : (

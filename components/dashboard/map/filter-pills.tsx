@@ -39,22 +39,24 @@ export function FilterPills({ filters, onFilterChange, stats }: FilterPillsProps
   }
 
   return (
-    <div className="flex items-center gap-4">
+    <div className="flex items-center gap-4 text-slate-300">
       {/* Main Filters */}
       <div className="flex items-center gap-2">
         <Button
           variant={filters.showOnlyUnmapped ? "default" : "outline"}
           size="sm"
           onClick={toggleUnmappedOnly}
-          className="bg-red-600 hover:bg-red-700 text-white border-red-600"
+          className={filters.showOnlyUnmapped
+            ? "bg-red-600 hover:bg-red-700 text-white border-red-600 rounded-sm font-bold tracking-wide"
+            : "bg-slate-900/50 hover:bg-slate-800 text-slate-300 border-slate-700 rounded-sm"}
         >
           <TrendingUp className="w-4 h-4 mr-2" />
-          Show Opportunities Only
+          TARGET UNMAPPED
         </Button>
-        
-        <Badge variant="secondary" className="bg-red-100 text-red-800 border-red-200">
-          {stats.residential + stats.commercial + stats.industrial} Buildings
-        </Badge>
+
+        <div className="px-3 py-1 bg-slate-900 border border-slate-700 rounded-sm text-xs font-mono text-slate-400">
+          <span className="text-white font-bold">{stats.residential + stats.commercial + stats.industrial}</span> STRUCTS
+        </div>
       </div>
 
       {/* Advanced Filters Toggle */}
@@ -62,18 +64,18 @@ export function FilterPills({ filters, onFilterChange, stats }: FilterPillsProps
         variant="ghost"
         size="sm"
         onClick={() => setShowAdvanced(!showAdvanced)}
-        className="text-gray-600"
+        className="text-slate-400 hover:text-white rounded-sm"
       >
         <Filter className="w-4 h-4 mr-2" />
-        Advanced
+        FILTERS
       </Button>
 
       {/* Advanced Filters */}
       {showAdvanced && (
-        <div className="flex items-center gap-6 pl-4 border-l border-gray-300">
+        <div className="flex items-center gap-6 pl-4 border-l border-slate-700">
           {/* High Value Targets */}
           <div className="flex items-center gap-3">
-            <span className="text-sm font-medium text-gray-700">Min Value:</span>
+            <span className="text-xs font-bold uppercase text-slate-500">Min Value:</span>
             <div className="w-32">
               <Slider
                 value={[filters.minValue || 0]}
@@ -84,8 +86,8 @@ export function FilterPills({ filters, onFilterChange, stats }: FilterPillsProps
                 className="w-full"
               />
             </div>
-            <span className="text-sm text-gray-600">
-              ₦{((filters.minValue || 0) / 1000).toFixed(0)}K
+            <span className="text-xs font-mono text-blue-400">
+              ₦{((filters.minValue || 0) / 1000).toFixed(0)}K+
             </span>
           </div>
 
@@ -94,21 +96,22 @@ export function FilterPills({ filters, onFilterChange, stats }: FilterPillsProps
             <Switch
               checked={filters.newConstructionOnly}
               onCheckedChange={toggleNewConstruction}
+              className="data-[state=checked]:bg-blue-600"
             />
-            <span className="text-sm font-medium text-gray-700">New Construction</span>
+            <span className="text-xs font-bold uppercase text-slate-500">New Construction</span>
           </div>
         </div>
       )}
 
       {/* Quick Stats */}
-      <div className="ml-auto flex items-center gap-4">
+      <div className="ml-auto flex items-center gap-4 text-xs font-mono">
         <div className="flex items-center gap-2">
-          <div className="w-3 h-3 rounded-full bg-red-500"></div>
-          <span className="text-sm text-gray-600">Unmapped</span>
+          <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></div>
+          <span className="text-red-400">UNMAPPED</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="w-3 h-3 rounded-full bg-green-500 opacity-20 border border-green-500"></div>
-          <span className="text-sm text-gray-600">Compliant</span>
+          <div className="w-2 h-2 rounded-full bg-emerald-500/50 border border-emerald-500"></div>
+          <span className="text-emerald-400">COMPLIANT</span>
         </div>
       </div>
     </div>

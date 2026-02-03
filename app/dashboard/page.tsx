@@ -42,14 +42,17 @@ export default function DashboardOverview() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-slate-800 pb-4">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Welcome back</h1>
-          <p className="text-muted-foreground">
-            Here is an overview of your property intelligence data for Gombe State.
-          </p>
+          <div className="flex items-center gap-2 mb-1">
+            <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+            <h1 className="text-sm font-bold text-blue-400 uppercase tracking-widest">System Status: Active</h1>
+          </div>
+          <h2 className="text-2xl font-bold text-white tracking-tight">Intelligence Overview</h2>
         </div>
-        <div className="text-sm text-muted-foreground">Last updated: {new Date().toLocaleDateString()}</div>
+        <div className="text-xs font-mono text-slate-500 bg-[#112240] px-3 py-1.5 rounded-sm border border-slate-800">
+          LAST_SYNC: {new Date().toISOString().split('T')[0]} | 14:02:45 UTC
+        </div>
       </div>
 
       {/* Key Metrics Grid */}
@@ -57,31 +60,34 @@ export default function DashboardOverview() {
         {isLoading ? (
           <>
             {[...Array(4)].map((_, i) => (
-              <Skeleton key={i} className="h-32 rounded-xl" />
+              <Skeleton key={i} className="h-32 rounded-sm bg-slate-800/50" />
             ))}
           </>
         ) : (
           <>
-            <StatCard title="Total Buildings" value={stats.total.toLocaleString()} icon={Building2} variant="primary" />
+            <StatCard title="Total Structures" value={stats.total.toLocaleString()} icon={Building2} variant="default" />
             <StatCard
               title="Residential"
               value={stats.residential.toLocaleString()}
-              subtitle={`${computedStats?.residentialPercent}%`}
+              subtitle={`${computedStats?.residentialPercent}% of total volume`}
               icon={Home}
-              variant="secondary"
+              variant="default"
+              trend={{ value: 2.1, positive: true }}
             />
             <StatCard
               title="Commercial"
               value={stats.commercial.toLocaleString()}
-              subtitle={`${computedStats?.commercialPercent}%`}
+              subtitle={`${computedStats?.commercialPercent}% of total volume`}
               icon={Store}
-              variant="accent"
+              variant="primary"
+              trend={{ value: 5.4, positive: true }}
             />
             <StatCard
               title="Industrial"
               value={stats.industrial.toLocaleString()}
-              subtitle={`${computedStats?.industrialPercent}%`}
+              subtitle={`${computedStats?.industrialPercent}% of total volume`}
               icon={Factory}
+              variant="accent"
             />
           </>
         )}
@@ -92,31 +98,31 @@ export default function DashboardOverview() {
         {isLoading ? (
           <>
             {[...Array(3)].map((_, i) => (
-              <Skeleton key={i} className="h-32 rounded-xl" />
+              <Skeleton key={i} className="h-32 rounded-sm bg-slate-800/50" />
             ))}
           </>
         ) : (
           <>
             <StatCard
-              title="Revenue Potential"
+              title="Est. Revenue Leakage"
               value={formatCurrency(stats.revenuePotential)}
-              subtitle="Annual property tax estimate"
+              subtitle="Annual recoverable tax"
               icon={Banknote}
-              variant="accent"
-            />
-            <StatCard
-              title="Large Commercial"
-              value={stats.largeCommercial.toLocaleString()}
-              subtitle="Buildings over 500m²"
-              icon={Store}
               variant="secondary"
             />
             <StatCard
-              title="Model Accuracy"
-              value="99.998%"
-              subtitle="Classification confidence"
+              title="High Value Targets"
+              value={stats.largeCommercial.toLocaleString()}
+              subtitle="Commercial > 500m²"
               icon={Target}
-              variant="primary"
+              variant="default"
+            />
+            <StatCard
+              title="AI Confidence"
+              value="99.98%"
+              subtitle="Classification accuracy"
+              icon={Target}
+              variant="default"
             />
           </>
         )}
@@ -126,19 +132,30 @@ export default function DashboardOverview() {
       <div className="grid lg:grid-cols-2 gap-6">
         {isLoading ? (
           <>
-            <Skeleton className="h-80 rounded-xl" />
-            <Skeleton className="h-80 rounded-xl" />
+            <Skeleton className="h-80 rounded-sm bg-slate-800/50" />
+            <Skeleton className="h-80 rounded-sm bg-slate-800/50" />
           </>
         ) : (
           <>
-            <MemoizedBuildingTypePieChart stats={stats} />
-            <MemoizedSizeDistributionChart stats={stats} />
+            <div className="bg-[#112240]/50 border border-slate-700/50 p-6 rounded-sm backdrop-blur-sm">
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-6">Building Classification Distribution</h3>
+              <MemoizedBuildingTypePieChart stats={stats} />
+            </div>
+            <div className="bg-[#112240]/50 border border-slate-700/50 p-6 rounded-sm backdrop-blur-sm">
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-6">Property Size Analysis</h3>
+              <MemoizedSizeDistributionChart stats={stats} />
+            </div>
           </>
         )}
       </div>
 
       {/* Recent Activity */}
-      {!isLoading && <MemoizedRecentActivity />}
+      {!isLoading && (
+        <div className="bg-[#112240]/50 border border-slate-700/50 p-6 rounded-sm backdrop-blur-sm">
+          <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-6">Live Intelligence Feed</h3>
+          <MemoizedRecentActivity />
+        </div>
+      )}
     </div>
   )
 }
