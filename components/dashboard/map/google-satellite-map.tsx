@@ -8,7 +8,6 @@ import {
     filterByViewport,
     simplifyPolygon,
     getEpsilonForZoom,
-    debounce,
     type Bounds,
     type LatLng,
 } from "@/lib/map-utils"
@@ -34,6 +33,9 @@ const classificationColors: Record<string, string> = {
     Industrial: "#8B5CF6", // Purple
     default: "#9CA3AF", // Gray
 }
+
+// Define libraries outside component to prevent reloading
+const libraries: ("places" | "geometry")[] = ["places", "geometry"]
 
 // Geometry parsing helpers
 type Position = [number, number]
@@ -143,11 +145,19 @@ export function GoogleSatelliteMap({ buildings = [], onBuildingClick, onBoundsCh
     const [viewport, setViewport] = useState<Bounds | null>(null)
     const [zoom, setZoom] = useState(13)
     const [visiblePolygons, setVisiblePolygons] = useState<BuildingPolygon[]>([])
+
+    // Use refs for values needed in callbacks/timeouts to prevent dependency cycles
+    const onBoundsChangeRef = useRef(onBoundsChange)
     const updateTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined)
+
+    // Update ref when prop changes
+    useEffect(() => {
+        onBoundsChangeRef.current = onBoundsChange
+    }, [onBoundsChange])
 
     const { isLoaded, loadError } = useJsApiLoader({
         googleMapsApiKey: GOOGLE_MAPS_API_KEY,
-        libraries: ["places" as any, "geometry" as any],
+        libraries: libraries, // Use static array
     })
 
     const mapOptions = useMemo<google.maps.MapOptions | null>(() => {
@@ -241,13 +251,12 @@ export function GoogleSatelliteMap({ buildings = [], onBuildingClick, onBoundsCh
         setVisiblePolygons(processed)
     }, [viewport, zoom, buildingPolygons, map])
 
-    // Debounced viewport update
-    const debouncedUpdate = useMemo(
-        () => debounce(updateVisiblePolygons, 150),
-        [updateVisiblePolygons]
-    )
+    // Trigger update when viewport/zoom changes
+    useEffect(() => {
+        updateVisiblePolygons()
+    }, [updateVisiblePolygons])
 
-    // Update viewport when map bounds or zoom changes
+    // Handle map bounds changes
     const handleBoundsChanged = useCallback(() => {
         if (!map) return
 
@@ -258,47 +267,40 @@ export function GoogleSatelliteMap({ buildings = [], onBuildingClick, onBoundsCh
             const ne = bounds.getNorthEast()
             const sw = bounds.getSouthWest()
 
-            setViewport({
+            const newViewport = {
                 north: ne.lat(),
                 south: sw.lat(),
                 east: ne.lng(),
                 west: sw.lng(),
-            })
+            }
+
+            setViewport(newViewport)
             setZoom(currentZoom)
 
-            // Notify parent of bounds change
-            if (onBoundsChange) {
-                onBoundsChange({
-                    north: ne.lat(),
-                    south: sw.lat(),
-                    east: ne.lng(),
-                    west: sw.lng(),
-                })
+            // Notify parent of bounds change via ref to avoid dependency loop
+            if (onBoundsChangeRef.current) {
+                // Throttle this call slightly to avoid spamming parent
+                if (updateTimeoutRef.current) {
+                    clearTimeout(updateTimeoutRef.current)
+                }
+                updateTimeoutRef.current = setTimeout(() => {
+                    onBoundsChangeRef.current?.(newViewport)
+                }, 500) // Increased delay to verify fix
             }
-
-            // Defer update to prevent blocking
-            if (updateTimeoutRef.current) {
-                clearTimeout(updateTimeoutRef.current)
-            }
-            updateTimeoutRef.current = setTimeout(() => {
-                debouncedUpdate()
-            }, 100)
         }
-    }, [map, debouncedUpdate, onBoundsChange])
+    }, [map])
 
     // Set up map event listeners
     useEffect(() => {
         if (!map) return
 
         const idleListener = map.addListener("idle", handleBoundsChanged)
-        const zoomListener = map.addListener("zoom_changed", handleBoundsChanged)
 
         // Initial update
         handleBoundsChanged()
 
         return () => {
             google.maps.event.removeListener(idleListener)
-            google.maps.event.removeListener(zoomListener)
             if (updateTimeoutRef.current) {
                 clearTimeout(updateTimeoutRef.current)
             }
