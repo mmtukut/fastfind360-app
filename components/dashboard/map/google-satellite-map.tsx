@@ -96,6 +96,7 @@ interface BuildingPolygon {
 interface GoogleSatelliteMapProps {
     buildings?: Building[]
     onBuildingClick?: (building: Building) => void
+    onBoundsChange?: (bounds: Bounds) => void
 }
 
 // Memoized Polygon component to prevent unnecessary re-renders
@@ -136,7 +137,7 @@ const MemoizedPolygon = memo(
 
 MemoizedPolygon.displayName = "MemoizedPolygon"
 
-export function GoogleSatelliteMap({ buildings = [], onBuildingClick }: GoogleSatelliteMapProps) {
+export function GoogleSatelliteMap({ buildings = [], onBuildingClick, onBoundsChange }: GoogleSatelliteMapProps) {
     const [map, setMap] = useState<google.maps.Map | null>(null)
     const [selectedBuildingId, setSelectedBuildingId] = useState<string | null>(null)
     const [viewport, setViewport] = useState<Bounds | null>(null)
@@ -265,6 +266,16 @@ export function GoogleSatelliteMap({ buildings = [], onBuildingClick }: GoogleSa
             })
             setZoom(currentZoom)
 
+            // Notify parent of bounds change
+            if (onBoundsChange) {
+                onBoundsChange({
+                    north: ne.lat(),
+                    south: sw.lat(),
+                    east: ne.lng(),
+                    west: sw.lng(),
+                })
+            }
+
             // Defer update to prevent blocking
             if (updateTimeoutRef.current) {
                 clearTimeout(updateTimeoutRef.current)
@@ -273,7 +284,7 @@ export function GoogleSatelliteMap({ buildings = [], onBuildingClick }: GoogleSa
                 debouncedUpdate()
             }, 100)
         }
-    }, [map, debouncedUpdate])
+    }, [map, debouncedUpdate, onBoundsChange])
 
     // Set up map event listeners
     useEffect(() => {

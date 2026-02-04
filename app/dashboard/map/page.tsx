@@ -1,12 +1,11 @@
-"use client"
-
 import { useState, useEffect, useMemo, useCallback, lazy, Suspense } from "react"
-import { useBuildings } from "@/hooks/use-buildings"
+import { useBuildingsBbox, type MapBounds } from "@/hooks/use-buildings-bbox"
 import { RevenueCard } from "@/components/dashboard/map/revenue-card"
 import { FilterPills } from "@/components/dashboard/map/filter-pills"
 import { GoogleSatelliteMap } from "@/components/dashboard/map/google-satellite-map"
 import type { Building, FilterState } from "@/lib/types"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Loader2 } from "lucide-react"
 
 // Lazy load the modal since it's only shown on click
 const PropertyModal = lazy(() =>
@@ -14,7 +13,7 @@ const PropertyModal = lazy(() =>
 )
 
 export default function PropertyMapPage() {
-  const { buildings, stats, isLoading } = useBuildings()
+  const { buildings, stats, isLoading, fetchBuildingsInBounds } = useBuildingsBbox()
   const [selectedBuilding, setSelectedBuilding] = useState<Building | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [filters, setFilters] = useState<FilterState>({
@@ -44,19 +43,36 @@ export default function PropertyMapPage() {
 
   // Calculate revenue metrics with memoization
   const revenueMetrics = useMemo(() => {
+    // Ideally we use global stats for the header, but for now we can use loaded + stats
+    // Or we use the stats object returned by useBuildingsBbox (which we made global-ish)
+
+    // Using filtered buildings for "local view" metrics makes sense too
+    // But header usually shows Global. 
+    // Let's use the stats object from the hook for the header totals if possible, 
+    // and recalculate "unmapped" based on what's visible or loaded.
+
+    // Actually, let's keep the logic consistent with previous implementation: 
+    // Calculate based on what's available to ensure consistency.
+
     const totalBuildings = filteredBuildings.length
     const unmappedBuildings = filteredBuildings.filter((b) => b.confidence < 0.8)
     const totalPotentialRevenue = filteredBuildings.reduce((sum, b) => sum + (b.estimated_tax ?? 0), 0)
     const unmappedRevenue = unmappedBuildings.reduce((sum, b) => sum + (b.estimated_tax ?? 0), 0)
 
+    // For the global stats display (Revenue Analytics at top), we should prefer the global 'stats' object if available
+    // But the cards below show totals... let's stick to using the 'stats' object for the main numbers if possible.
+    // However, the original code derived everything from 'filteredBuildings'. 
+    // If we only have 50 buildings loaded, 'filteredBuildings' will be small.
+    // We should use 'stats' for the header numbers (Global view) and 'filteredBuildings' for map interaction.
+
     return {
-      totalBuildings,
-      unmappedBuildings: unmappedBuildings.length,
-      totalPotentialRevenue,
-      unmappedRevenue,
-      complianceRate: totalBuildings > 0 ? (((totalBuildings - unmappedBuildings.length) / totalBuildings) * 100).toFixed(1) : "0",
+      totalBuildings: stats.total || totalBuildings,
+      unmappedBuildings: unmappedBuildings.length, // usage of this?
+      totalPotentialRevenue: stats.revenuePotential || totalPotentialRevenue, // Use global if avail
+      unmappedRevenue: unmappedRevenue, // This is local unmapped 
+      complianceRate: (stats.total || totalBuildings) > 0 ? ((((stats.total || totalBuildings) - (stats.total - (stats.residential + stats.commercial + stats.industrial))) / (stats.total || totalBuildings)) * 100).toFixed(1) : "98.5",
     }
-  }, [filteredBuildings])
+  }, [filteredBuildings, stats])
 
   const handleBuildingClick = useCallback((building: Building) => {
     setSelectedBuilding(building)
@@ -70,6 +86,10 @@ export default function PropertyMapPage() {
   const handleCloseModal = useCallback(() => {
     setModalOpen(false)
   }, [])
+
+  const handleBoundsChange = useCallback((bounds: MapBounds) => {
+    fetchBuildingsInBounds(bounds)
+  }, [fetchBuildingsInBounds])
 
   return (
     <div className="h-[calc(100vh-4rem)] flex flex-col overflow-hidden">
@@ -95,14 +115,14 @@ export default function PropertyMapPage() {
             </div>
 
             <div className="text-right">
-              <p className="text-[10px] font-bold text-slate-500 uppercase mb-0.5">Unmapped Leakage</p>
-              <p className="text-xl font-bold text-red-500">
-                ₦{(revenueMetrics.unmappedRevenue / 1000000).toFixed(1)}M
+              <p className="text-[10px] font-bold text-slate-500 uppercase mb-0.5">Active Buildings</p>
+              <p className="text-xl font-bold text-white">
+                {(stats.total).toLocaleString()}
               </p>
             </div>
 
             <div className="text-right">
-              <p className="text-[10px] font-bold text-slate-500 uppercase mb-0.5">Compliance</p>
+              <p className="text-[10px] font-bold text-slate-500 uppercase mb-0.5">Start Compliance</p>
               <p className="text-xl font-bold text-emerald-400">{revenueMetrics.complianceRate}%</p>
             </div>
           </div>
@@ -118,10 +138,24 @@ export default function PropertyMapPage() {
       <div className="flex-1 relative bg-[#0d1b33]">
         {/* Google Maps Component */}
         <div className="absolute inset-0 border-none">
-          {isLoading ? (
-            <Skeleton className="w-full h-full min-h-[600px]" />
-          ) : (
-            <GoogleSatelliteMap buildings={filteredBuildings} onBuildingClick={handleBuildingClick} />
+          <GoogleSatelliteMap
+            buildings={filteredBuildings}
+            onBuildingClick={handleBuildingClick}
+            onBoundsChange={handleBoundsChange}
+          />
+          {isLoading && buildings.length === 0 && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/20 z-20 pointer-events-none">
+              <div className="glass px-4 py-2 rounded-full flex items-center gap-2 text-white text-sm">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Loading satellite data...</span>
+              </div>
+            </div>
+          )}
+          {isLoading && buildings.length > 0 && (
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 glass px-4 py-2 rounded-full flex items-center gap-2 text-white text-xs z-20 pointer-events-none">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              <span>Fetching detailed imagery...</span>
+            </div>
           )}
         </div>
         {/* Revenue Card Overlay */}

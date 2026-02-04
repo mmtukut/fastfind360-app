@@ -1,12 +1,10 @@
 const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
+const fs = require('fs');
+const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 8080; // Cloud Run uses PORT env var
-
-// Hardcoded for now as in original file, but could be env var
-const FIREBASE_CSV_URL =
-    "https://firebasestorage.googleapis.com/v0/b/studio-8745024075-1f679.firebasestorage.app/o/gombe_buildings.csv?alt=media&token=b0db8a15-91a7-48db-952e-57b5b6bfe347";
 
 const TAX_RATES = {
     Residential: 100,
@@ -64,13 +62,19 @@ function getHeaders(csvText) {
 }
 
 async function loadData() {
-    console.log("Fetching buildings from Firebase...");
+    console.log("Loading buildings from local CSV...");
     try {
-        const response = await fetch(FIREBASE_CSV_URL);
-        if (!response.ok) throw new Error(`Firebase responded with status: ${response.status}`);
+        const csvPath = path.join(__dirname, '../gombe_buildings.csv');
 
-        const csvText = await response.text();
-        console.log("CSV fetched, parsing...");
+        if (!fs.existsSync(csvPath)) {
+            throw new Error(`CSV file not found at ${csvPath}`);
+        }
+
+        console.time("Read File");
+        const csvText = fs.readFileSync(csvPath, 'utf8');
+        console.timeEnd("Read File");
+
+        console.log("CSV loaded, parsing...");
         console.time("CSV Parse");
 
         const lines = csvText.split("\n");
@@ -172,6 +176,69 @@ app.get('/buildings', (req, res) => {
     res.json({
         buildings: buildingsData.buildings,
         stats: buildingsData.stats
+    });
+});
+
+app.get('/buildings/bbox', (req, res) => {
+    if (!buildingsData.ready) {
+        return res.status(503).json({ error: "Data loading" });
+    }
+
+    const { north, south, east, west, limit, statsOnly } = req.query;
+
+    if (!north || !south || !east || !west) {
+        return res.status(400).json({ error: "Missing bounding box coordinates (north, south, east, west)" });
+    }
+
+    const n = parseFloat(north);
+    const s = parseFloat(south);
+    const e = parseFloat(east);
+    const w = parseFloat(west);
+    const limitNum = parseInt(limit) || 5000;
+
+    // Filter buildings within bounding box
+    const filteredBuildings = buildingsData.buildings.filter(b =>
+        b.latitude <= n &&
+        b.latitude >= s &&
+        b.longitude <= e &&
+        b.longitude >= w
+    );
+
+    // Calculate stats for this region
+    const localStats = {
+        total: filteredBuildings.length,
+        residential: 0,
+        commercial: 0,
+        industrial: 0,
+        totalArea: 0,
+        revenuePotential: 0,
+        largeCommercial: 0,
+    };
+
+    filteredBuildings.forEach(b => {
+        localStats.totalArea += b.area_in_meters;
+        localStats.revenuePotential += b.estimated_tax || 0;
+
+        if (b.classification === "Residential") localStats.residential++;
+        else if (b.classification === "Commercial") {
+            localStats.commercial++;
+            if (b.area_in_meters > 500) localStats.largeCommercial++;
+        }
+        else if (b.classification === "Industrial") localStats.industrial++;
+    });
+
+    if (statsOnly === '1') {
+        return res.json({ stats: localStats, count: filteredBuildings.length });
+    }
+
+    // Apply limit to buildings returned
+    const limitedBuildings = filteredBuildings.slice(0, limitNum);
+
+    res.json({
+        buildings: limitedBuildings,
+        stats: localStats,
+        count: limitedBuildings.length,
+        totalInArea: filteredBuildings.length
     });
 });
 
