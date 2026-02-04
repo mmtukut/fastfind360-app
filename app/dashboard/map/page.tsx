@@ -1,3 +1,5 @@
+"use client"
+
 import { useState, useEffect, useMemo, useCallback, lazy, Suspense } from "react"
 import { useBuildingsBbox, type MapBounds } from "@/hooks/use-buildings-bbox"
 import { RevenueCard } from "@/components/dashboard/map/revenue-card"
