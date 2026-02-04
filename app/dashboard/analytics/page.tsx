@@ -42,9 +42,18 @@ export default function AnalyticsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Revenue Analytics</h1>
-        <p className="text-muted-foreground">Comprehensive analysis of property tax potential across Gombe State.</p>
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-slate-800 pb-4">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+            <h1 className="text-sm font-bold text-blue-400 uppercase tracking-widest">System Status: Active</h1>
+          </div>
+          <h2 className="text-2xl font-bold text-white tracking-tight">Revenue Analytics</h2>
+          <p className="text-slate-400 text-sm mt-1">Comprehensive analysis of property tax potential across Gombe State</p>
+        </div>
+        <div className="text-xs font-mono text-slate-500 bg-[#112240] px-3 py-1.5 rounded-sm border border-slate-800">
+          LAST_SYNC: {new Date().toISOString().split('T')[0]} | {new Date().toTimeString().split(' ')[0]} UTC
+        </div>
       </div>
 
       {/* Revenue Comparison */}
