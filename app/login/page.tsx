@@ -3,6 +3,7 @@
 import React, { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { useAuth } from '@/lib/auth'
 import { Lock, Shield, AlertTriangle, ArrowLeft, Loader2 } from 'lucide-react'
 
 export default function LoginPage() {
@@ -10,6 +11,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
+  const { login } = useAuth()
   const router = useRouter()
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -17,13 +19,17 @@ export default function LoginPage() {
     setIsLoading(true)
     setError('')
 
-    // Simulate network delay
-    await new Promise(resolve => setTimeout(resolve, 1500))
+    try {
+      const result = await login(email, password)
 
-    if (email === 'admin@gombegis.org' && password === 'demo123') {
-      router.push('/dashboard')
-    } else {
-      setError('Invalid official credentials. Access denied.')
+      if (result.success) {
+        router.push('/dashboard')
+      } else {
+        setError(result.error || 'Access denied.')
+      }
+    } catch (err) {
+      setError('An unexpected error occurred. Please try again.')
+    } finally {
       setIsLoading(false)
     }
   }
