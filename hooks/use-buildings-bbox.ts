@@ -72,7 +72,7 @@ export function useBuildingsBbox(): UseBuildingsBboxReturn {
         setError(null)
 
         try {
-            // Fetch buildings
+            // Fetch buildings from our new API route (which handles backend fallback internally)
             const params = new URLSearchParams({
                 north: bounds.north.toString(),
                 south: bounds.south.toString(),
@@ -81,8 +81,7 @@ export function useBuildingsBbox(): UseBuildingsBboxReturn {
                 limit: "2000" // Fetch up to 2000 visible buildings at a time
             })
 
-            const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000"
-            const response = await fetch(`${backendUrl}/buildings/bbox?${params.toString()}`, {
+            const response = await fetch(`/api/buildings/bbox?${params.toString()}`, {
                 signal: abortControllerRef.current.signal,
                 headers: {
                     "Accept": "application/json"
@@ -137,8 +136,8 @@ export function useBuildingsBbox(): UseBuildingsBboxReturn {
     useEffect(() => {
         const fetchGlobalStats = async () => {
             try {
-                const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000"
-                const response = await fetch(`${backendUrl}/buildings?statsOnly=1`)
+                // Use the Next.js API route which handles fallback internally
+                const response = await fetch('/api/buildings?statsOnly=1')
                 if (response.ok) {
                     const data = await response.json()
                     setStats(data.stats)
