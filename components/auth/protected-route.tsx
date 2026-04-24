@@ -12,23 +12,27 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children }: ProtectedRouteProps) {
-  const { isAuthenticated, user } = useAuth()
+  const { isAuthenticated } = useAuth()
   const router = useRouter()
-  const [isChecking, setIsChecking] = useState(true)
+  const [hasHydrated, setHasHydrated] = useState(false)
 
   useEffect(() => {
-    // Small delay to allow hydration of persisted auth state
-    const timer = setTimeout(() => {
-      if (!isAuthenticated) {
-        router.push("/login")
-      }
-      setIsChecking(false)
-    }, 100)
+    setHasHydrated(useAuth.persist.hasHydrated())
 
-    return () => clearTimeout(timer)
-  }, [isAuthenticated, router])
+    const unsubFinishHydration = useAuth.persist.onFinishHydration(() => setHasHydrated(true))
 
-  if (isChecking || !isAuthenticated) {
+    return () => {
+      unsubFinishHydration()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (hasHydrated && !isAuthenticated) {
+      router.push("/login")
+    }
+  }, [hasHydrated, isAuthenticated, router])
+
+  if (!hasHydrated || !isAuthenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-muted/30">
         <div className="text-center">

@@ -24,7 +24,7 @@ export async function GET(request: Request) {
             const endpoint = `${backendUrl}/buildings/bbox?${searchParams.toString()}`
 
             const controller = new AbortController()
-            const timeoutId = setTimeout(() => controller.abort(), 2000) // 2s timeout
+            const timeoutId = setTimeout(() => controller.abort(), 8000) // 8s timeout to allow Cloud Run cold starts
 
             const backendRes = await fetch(endpoint, {
                 signal: controller.signal,

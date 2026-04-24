@@ -226,27 +226,47 @@ function parseBuildings(csvText: string): BuildingsData {
   return { buildings, stats }
 }
 
+import fs from 'fs'
+import path from 'path'
+
 /**
- * Fetch buildings data from Firebase
+ * Fetch buildings data from Firebase or local fallback
  */
 async function fetchBuildingsData(): Promise<BuildingsData> {
-  console.log("Fetching buildings from Firebase...")
+  let csvText = ""
+  
+  try {
+    console.log("Fetching buildings from Firebase...")
 
-  const response = await fetch(FIREBASE_CSV_URL, {
-    headers: {
-      Accept: "text/csv, text/plain, */*",
-    },
-    cache: "force-cache", // Use browser cache when possible
-  })
+    const response = await fetch(FIREBASE_CSV_URL, {
+      headers: {
+        Accept: "text/csv, text/plain, */*",
+      },
+      cache: "no-store", // Fix for Firebase 412 Precondition Failed
+    })
 
-  if (!response.ok) {
-    throw new Error(`Firebase responded with status: ${response.status}`)
+    if (!response.ok) {
+      throw new Error(`Firebase responded with status: ${response.status}`)
+    }
+
+    csvText = await response.text()
+  } catch (err) {
+    console.warn("Firebase fetch failed, falling back to local file:", err)
+    
+    try {
+      // Fallback to local file
+      const localFilePath = path.join(process.cwd(), 'backend', 'gombe_buildings.csv')
+      console.log(`Reading local file from: ${localFilePath}`)
+      csvText = fs.readFileSync(localFilePath, 'utf-8')
+    } catch (localErr) {
+      console.error("Local file fallback also failed. Ensure the file exists or NEXT_PUBLIC_BACKEND_URL is set in production:", localErr)
+      return { buildings: [], stats: { total: 0, residential: 0, commercial: 0, industrial: 0, totalArea: 0, revenuePotential: 0, largeCommercial: 0 } }
+    }
   }
 
-  const csvText = await response.text()
   const data = parseBuildings(csvText)
 
-  // Save to IndexedDB for future use
+  // Save to IndexedDB for future use (will likely fail silently on server)
   saveToDB(data)
 
   return data

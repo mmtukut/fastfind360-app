@@ -11,7 +11,7 @@ export async function GET(request: Request) {
       const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000"
       const endpoint = `${backendUrl}/buildings` + (statsOnly ? "?statsOnly=1" : "")
       const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 2000) // 2s timeout
+      const timeoutId = setTimeout(() => controller.abort(), 8000) // 8s timeout to allow Cloud Run cold starts
 
       const backendRes = await fetch(endpoint, {
         signal: controller.signal,

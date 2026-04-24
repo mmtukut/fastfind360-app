@@ -216,40 +216,25 @@ export function GoogleSatelliteMap({ buildings = [], onBuildingClick, onBoundsCh
 
     // Update visible polygons based on viewport and zoom
     const updateVisiblePolygons = useCallback(() => {
-        if (!viewport || !map) {
+        if (!map) {
             setVisiblePolygons(buildingPolygons)
             return
         }
 
-        console.time("Filter and simplify")
-
-        // Filter by viewport
-        const inViewport = filterByViewport(buildingPolygons, viewport, 0.2)
-        console.log(`Filtered to ${inViewport.length} polygons in viewport`)
-
-        // Apply Level of Detail (LOD) - simplify based on zoom
-        const epsilon = getEpsilonForZoom(zoom)
-        const shouldSimplify = zoom < 15 // Only simplify at lower zoom levels
-
-        const processed = inViewport.map((poly) => {
-            if (!shouldSimplify || !poly.originalPaths) {
-                return poly
-            }
-
-            // Simplify polygon for better performance
-            const simplified = simplifyPolygon(poly.originalPaths, epsilon)
-
-            return {
-                ...poly,
-                paths: simplified,
-            }
-        })
-
-        console.timeEnd("Filter and simplify")
-        console.log(`Rendering ${processed.length} polygons (zoom: ${zoom}, simplified: ${shouldSimplify})`)
+        // The backend already limits and filters buildings by viewport.
+        // We bypass the frontend viewport filtering to avoid race conditions with map bounds.
+        // We also bypass Douglas-Peucker simplification, because buildings are so small
+        // that simplification often collapses them into 2-point arrays (invisible lines).
+        
+        // Prevent rendering more than 5000 polygons to maintain browser performance
+        // if the user pans around a lot and accumulates buildings.
+        const maxPolygonsToRender = 5000
+        const processed = buildingPolygons.slice(0, maxPolygonsToRender)
+        
+        console.log(`Rendering ${processed.length} polygons (Backend provided ${buildingPolygons.length})`)
 
         setVisiblePolygons(processed)
-    }, [viewport, zoom, buildingPolygons, map])
+    }, [buildingPolygons, map])
 
     // Trigger update when viewport/zoom changes
     useEffect(() => {
